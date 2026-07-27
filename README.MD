@@ -4,8 +4,8 @@
 ## Owner
 | Field | Value |
 |---|---|
-| Zachary Hrastich |
-| Role | Systems Administrator |
+| Name | Zachary Hrastich
+| Role | System Administrator |
 | Certifications | CompTIA Security+, CySA+ |
 | Clearance | T4 Public Trust |
 | Goal | Transition to MSSP/SOC — Security Analyst or Detection Engineer |
