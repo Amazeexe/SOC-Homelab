@@ -4,6 +4,7 @@
 ## Owner
 | Field | Value |
 |---|---|
+| Zachary Hrastich |
 | Role | Systems Administrator |
 | Certifications | CompTIA Security+, CySA+ |
 | Clearance | T4 Public Trust |
