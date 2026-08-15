@@ -83,6 +83,7 @@ The lab was designed around the following controls and workflows:
 
 - **Least-privilege inter-VLAN routing** with explicit service exceptions and default-deny behavior.
 - **Centralized security telemetry** from firewall, IDS, Linux, and Windows endpoints.
+- **Centralized endpoint security deployment** using Active Directory Group Policy to deploy Sysmon and Elastic Agent/Elastic Defend to scoped Windows systems.
 - **Detection validation** by generating controlled traffic from Kali and confirming corresponding Suricata/Elastic evidence.
 - **Detection tuning** by investigating noisy signatures and separating true scan behavior from false positives.
 - **Internal PKI** with a root/intermediate hierarchy managed through HashiCorp Vault.
@@ -223,9 +224,10 @@ Elasticsearch
 Kibana / Elastic Security
 
 Elastic Agent / Fleet
+    |-- Elastic Defend endpoint telemetry
     |-- Windows Security/System/Application logs
+    |-- Sysmon telemetry
     |-- Linux system/auth logs
-    |-- Endpoint telemetry
     v
 Elasticsearch
 ```
@@ -235,6 +237,12 @@ Elasticsearch
 Fleet centrally manages the Elastic Agents used by the lab systems.
 
 ![Elastic Fleet agents](docs/images/kibana/fleet-agents.webp)
+
+### Endpoint Telemetry — Elastic Defend & Sysmon
+
+Windows endpoint coverage combines Elastic Defend with Sysmon rather than relying on a single telemetry source. Elastic Agent is centrally managed through Fleet and carries the Elastic Defend integration for endpoint security visibility, while Sysmon provides additional high-fidelity Windows host telemetry useful for investigation and detection engineering.
+
+Deployment is automated through Active Directory Group Policy. Separate GPOs deploy the Elastic Agent/Elastic Defend stack and Sysmon to scoped domain systems, making endpoint instrumentation repeatable and reducing manual configuration drift. This ties the AD environment directly into the defensive architecture: domain policy is used not only for identity and workstation management, but also to establish consistent security visibility.
 
 ### Data Views
 
@@ -405,6 +413,10 @@ The Windows environment uses the `zmh.homelab` domain with Windows Server 2025 a
 ### Domain Workstation
 
 ![Active Directory computer OU](docs/images/windows/aduc-computer-ou.webp)
+
+### Group Policy Security Deployment
+
+Active Directory also serves as a centralized endpoint-security deployment mechanism. Separate Group Policy Objects are used to deploy Sysmon and Elastic Agent/Elastic Defend to scoped Windows systems, standardizing endpoint instrumentation instead of relying on one-off manual installs. The resulting endpoint telemetry feeds the same Elastic environment used for network, authentication, and detection-engineering workflows.
 
 ### Kali-to-Workstation Validation and Domain Discovery
 
@@ -580,8 +592,8 @@ A failed pve2 NVMe drive required a Proxmox reinstall and VM rebuild. Rebuilding
 | Switching | Cisco Catalyst 3560CX, 802.1Q trunks |
 | IDS / Network Security | Suricata, Emerging Threats rules |
 | SIEM / Search | Elasticsearch, Logstash, Kibana, Elastic Security |
-| Endpoint / Agent Management | Elastic Agent, Fleet, Windows Event Logs |
-| Identity | Windows Server 2025, Active Directory, DNS, Kerberos, LDAP |
+| Endpoint / Agent Management | Elastic Agent, Elastic Defend, Sysmon, Fleet, Windows Event Logs, Group Policy |
+| Identity | Windows Server 2025, Active Directory, Group Policy, DNS, Kerberos, LDAP |
 | PKI | HashiCorp Vault, X.509, internal root/intermediate CA |
 | Vulnerability Management | Greenbone / OpenVAS |
 | Virtualization | Proxmox VE cluster |
