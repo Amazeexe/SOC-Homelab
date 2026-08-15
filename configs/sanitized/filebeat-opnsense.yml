@@ -1,0 +1,110 @@
+# Sanitized OPNsense Filebeat configuration used by the SOC homelab.
+# Disabled/default boilerplate and inactive Elasticsearch output settings are omitted.
+
+filebeat.modules:
+- module: suricata
+  eve:
+    enabled: true
+
+filebeat.inputs:
+- type: filestream
+  id: audit
+  tags: ['audit']
+  enabled: true
+  paths:
+    - /var/log/audit/audit_*.log
+  parsers:
+    - syslog:
+        format: auto
+        log_errors: true
+        add_error_key: true
+
+- type: filestream
+  id: configd
+  tags: ['configd']
+  enabled: true
+  paths:
+    - /var/log/configd/configd_*.log
+  parsers:
+    - syslog:
+        format: auto
+        log_errors: true
+        add_error_key: true
+
+- type: filestream
+  id: boot
+  tags: ['boot']
+  enabled: true
+  paths:
+    - /var/log/boot.log
+  close.reader.on_eof: true
+  prospector:
+    scanner:
+      resend_on_touch: true
+  parsers:
+    - syslog:
+        format: auto
+        log_errors: true
+        add_error_key: true
+
+- type: filestream
+  id: system
+  tags: ['system']
+  enabled: true
+  paths:
+    - /var/log/system/system_*.log
+  parsers:
+    - syslog:
+        format: auto
+        log_errors: true
+        add_error_key: true
+
+- type: filestream
+  id: lighttpd
+  tags: ['lighttpd']
+  enabled: true
+  paths:
+    - /var/log/lighttpd/lighttpd_*.log
+  parsers:
+    - syslog:
+        format: auto
+        log_errors: true
+        add_error_key: true
+
+- type: filestream
+  id: firewall
+  tags: ['firewall']
+  enabled: true
+  paths:
+    - /var/log/filter/filter_*.log
+
+- type: filestream
+  id: dns-unbound
+  tags: ['dns', 'unbound', 'opnsense']
+  enabled: true
+  paths:
+    - /var/log/resolver/resolver_*.log
+
+- type: filestream
+  id: dhcp-dnsmasq
+  tags: ['dhcp', 'dnsmasq', 'opnsense']
+  enabled: true
+  paths:
+    - /var/log/dnsmasq/dnsmasq_*.log
+
+- type: filestream
+  id: opnsense-auth
+  tags: ['auth', 'nginx', 'opnsense']
+  enabled: true
+  paths:
+    - /var/log/nginx/error.log
+    - /var/log/nginx/access.log
+
+output.logstash:
+  hosts: ["192.168.40.10:5044"]
+  ssl.enabled: true
+  ssl.certificate_authorities: ["/usr/local/etc/beats/certs/Homelab-CA_crt.pem"]
+
+logging.to_syslog: true
+logging.metrics.enabled: false
+logging.to_files: false
