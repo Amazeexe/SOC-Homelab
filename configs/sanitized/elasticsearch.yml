@@ -1,0 +1,26 @@
+# Sanitized Elasticsearch configuration from the SOC homelab.
+# Secrets/private keys are not included; certificate/key paths reference local files only.
+
+path.data: /var/lib/elasticsearch
+path.logs: /var/log/elasticsearch
+
+xpack.security.enabled: true
+xpack.security.enrollment.enabled: true
+
+xpack.security.http.ssl:
+  enabled: true
+  certificate: /etc/elasticsearch/certs/elk-stack_chain.pem
+  key: /etc/elasticsearch/certs/elk-stack_key.pem
+
+xpack.security.transport.ssl:
+  enabled: true
+  verification_mode: certificate
+  keystore.path: certs/transport.p12
+  truststore.path: certs/transport.p12
+
+cluster.initial_master_nodes: ["suricata-vlan40"]
+http.host: 0.0.0.0
+
+xpack.security.http.ssl.client_authentication: none
+xpack.security.http.ssl.supported_protocols: [TLSv1.3]
+xpack.security.transport.ssl.supported_protocols: [TLSv1.3]
