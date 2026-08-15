@@ -1,0 +1,139 @@
+{
+  "index_templates": [
+    {
+      "name": "suricata-alerts-ecs-template",
+      "index_template": {
+        "index_patterns": [
+          "suricata-alerts-ecs-*"
+        ],
+        "template": {
+          "mappings": {
+            "properties": {
+              "alert_severity_label": {
+                "type": "keyword"
+              },
+              "@timestamp": {
+                "type": "date"
+              },
+              "ecs": {
+                "properties": {
+                  "version": {
+                    "type": "keyword"
+                  }
+                }
+              },
+              "log_source": {
+                "type": "keyword"
+              },
+              "host": {
+                "properties": {
+                  "name": {
+                    "type": "keyword"
+                  }
+                }
+              },
+              "destination": {
+                "properties": {
+                  "geo": {
+                    "properties": {
+                      "location": {
+                        "type": "geo_point"
+                      }
+                    }
+                  },
+                  "port": {
+                    "type": "long"
+                  },
+                  "ip": {
+                    "type": "ip"
+                  }
+                }
+              },
+              "suricata": {
+                "properties": {
+                  "eve": {
+                    "properties": {
+                      "alert": {
+                        "properties": {
+                          "severity": {
+                            "type": "long"
+                          },
+                          "signature_id": {
+                            "type": "long"
+                          },
+                          "rev": {
+                            "type": "long"
+                          },
+                          "signature": {
+                            "type": "keyword"
+                          },
+                          "category": {
+                            "type": "keyword"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "source": {
+                "properties": {
+                  "geo": {
+                    "properties": {
+                      "location": {
+                        "type": "geo_point"
+                      }
+                    }
+                  },
+                  "port": {
+                    "type": "long"
+                  },
+                  "ip": {
+                    "type": "ip"
+                  }
+                }
+              },
+              "event": {
+                "properties": {
+                  "kind": {
+                    "type": "keyword"
+                  },
+                  "action": {
+                    "type": "keyword"
+                  },
+                  "category": {
+                    "type": "keyword"
+                  },
+                  "type": {
+                    "type": "keyword"
+                  },
+                  "outcome": {
+                    "type": "keyword"
+                  }
+                }
+              },
+              "network": {
+                "properties": {
+                  "protocol": {
+                    "type": "keyword"
+                  },
+                  "transport": {
+                    "type": "keyword"
+                  },
+                  "direction": {
+                    "type": "keyword"
+                  }
+                }
+              },
+              "tags": {
+                "type": "keyword"
+              }
+            }
+          }
+        },
+        "composed_of": [],
+        "priority": 500
+      }
+    }
+  ]
+}
