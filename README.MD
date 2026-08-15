@@ -1,566 +1,487 @@
-# Homelab SOC — Master Reference Document
-**Last Updated:** July 27, 2026
+# SOC Homelab — Detection Engineering, Segmentation & Purple-Team Validation
 
-## Owner
-| Field | Value |
-|---|---|
-| Name | Zachary Hrastich
-| Role | System Administrator |
-| Certifications | CompTIA Security+, CySA+ |
-| Clearance | T4 Public Trust |
-| Goal | Transition to MSSP/SOC — Security Analyst or Detection Engineer |
+A security-focused homelab built to practice **network segmentation, SIEM engineering, endpoint telemetry, PKI, vulnerability management, Active Directory, and purple-team validation** in an environment that behaves more like a small enterprise than a collection of isolated VMs.
+
+The lab uses a bare-metal OPNsense firewall, a Cisco 3560CX switch, a two-node Proxmox cluster, Elastic Stack, Suricata, HashiCorp Vault, Greenbone/OpenVAS, Windows Active Directory, and a Kali Linux red-team host. The project is intentionally documented around **security controls and evidence** rather than basic VM installation steps.
+
+> **Portfolio focus:** defensive engineering, telemetry pipelines, firewall policy design, detection validation, alert tuning, PKI, and vulnerability management.
 
 ---
 
-## Network Architecture
+## Table of Contents
 
-| Device | Role | IP |
+- [Architecture](#architecture)
+- [Security Objectives](#security-objectives)
+- [Network Segmentation](#network-segmentation)
+- [OPNsense Firewall & IDS](#opnsense-firewall--ids)
+- [Elastic SIEM & Telemetry Pipeline](#elastic-siem--telemetry-pipeline)
+- [Detection Engineering & Validation](#detection-engineering--validation)
+- [Active Directory Lab](#active-directory-lab)
+- [HashiCorp Vault PKI](#hashicorp-vault-pki)
+- [Vulnerability Management](#vulnerability-management)
+- [Proxmox & Switching](#proxmox--switching)
+- [Key Engineering Decisions](#key-engineering-decisions)
+- [Lessons Learned](#lessons-learned)
+- [Technology Stack](#technology-stack)
+
+---
+
+## Architecture
+
+### Core Infrastructure
+
+| System | Role | Address / Network |
 |---|---|---|
-| OPNsense (bare-metal) | Firewall/Router | LAN: 192.168.1.1 / VLAN99: 192.168.99.1 |
-| Cisco 3560CX | Managed Switch | 192.168.99.3 |
-| pve1 — Dell Optiplex Micro | Hypervisor Node 1 | 192.168.99.2 |
-| pve2 — Xeon E5-2690 v4 4U | Hypervisor Node 2 | 192.168.99.50 |
-| Ubuntu VM (ELK Stack) | SIEM | 192.168.40.10 (VLAN40) — pve1 |
-| OpenVAS VM | Vulnerability Scanner | 192.168.40.20 (VLAN40) — pve1 |
-| HashiCorp Vault VM | PKI / Secret Management | 192.168.40.30 (VLAN40) — pve2 |
-| Windows Server 2025 DC | Active Directory | 192.168.60.10 (VLAN60) — pve2 |
-| Main PC | Workstation | 192.168.10.153 |
+| OPNsense | Bare-metal firewall/router, DHCP relay, Suricata, Filebeat | `192.168.1.1`, `192.168.99.1` |
+| Cisco 3560CX | Managed access/trunk switch | `192.168.99.3` |
+| pve1 | Proxmox hypervisor | `192.168.99.2` |
+| pve2 | Proxmox hypervisor | `192.168.99.50` |
+| ELK | Elasticsearch, Logstash, Kibana, Fleet | `192.168.40.10` |
+| OpenVAS | Greenbone vulnerability scanner | `192.168.40.20` |
+| HashiCorp Vault | Internal PKI / certificate authority | `192.168.40.30` |
+| DC01 | Windows Server 2025 AD DS / DNS | `192.168.60.10` |
+| ZMH-WS1 | Windows 11 domain workstation | VLAN 50 |
+| Kali | Red-team / validation host | `192.168.70.10` |
 
-### VLAN Segmentation
-| VLAN | Subnet | Purpose |
-|---|---|---|
-| VLAN 10 | 192.168.10.0/24 | Main LAN |
-| VLAN 20 | 192.168.20.0/24 | WiFi |
-| VLAN 30 | 192.168.30.0/24 | Wired Desktops |
-| VLAN 40 | 192.168.40.0/24 | Security/SIEM Infrastructure |
-| VLAN 50 | 192.168.50.0/24 | Windows 11 Domain VMs |
-| VLAN 60 | 192.168.60.0/24 | Windows Domain Controller |
-| VLAN 99 | 192.168.99.0/24 | Management Network |
+### Traffic & Telemetry Flow
 
-### Cluster
-- **Name:** ZMH-Homelab
-- **pve1 hostname:** homelabprox
-- **pve2 hostname:** pve2
-- **OPNsense web UI:** https://opnsense.zmh.homelab (Unbound host override)
+```text
+Internet / ONT
+      |
+      v
+  OPNsense
+      |
+      +---------------------------+
+      | VLAN routing + policy     |
+      | Suricata IDS/IPS          |
+      | Filebeat telemetry        |
+      +---------------------------+
+      |
+      v
+Cisco 3560CX
+      |
+      +--> VLAN 10  Main/Admin
+      +--> VLAN 20  WiFi
+      +--> VLAN 30  Wired Desktop
+      +--> VLAN 40  Security Services
+      +--> VLAN 50  Windows Workstation
+      +--> VLAN 60  Domain Controller
+      +--> VLAN 70  Red Team
+      +--> VLAN 99  Management
 
----
-
-## Hardware
-
-### pve2 — Xeon Build (Primary Workload Node)
-| Component | Detail |
-|---|---|
-| CPU | Intel Xeon E5-2690 v4 (14 core) |
-| RAM | 32GB ECC DDR4 |
-| Boot/VM Drive | Samsung 990 Pro 1TB NVMe |
-| Backup Drive | Seagate ST500LM021 500GB HDD |
-| Case | Rosewill RSV-R4100U 4U Rackmount |
-
-### pve1 — Optiplex Micro
-| Component | Detail |
-|---|---|
-| Drive | 256GB SSD |
-| Current VMs | ELK Stack (VM 100), OpenVAS (VM 101) |
-
-### Drive Failure — July 26 2026
-The original pve2 boot drive (Timetec 1TB NVMe, Realtek controller) failed in production. Key findings:
-
-- 594 Media and Data Integrity Errors logged by the kernel
-- Root filesystem remounted read-only; LVM thin pool metadata corrupted
-- SMART telemetry was inaccurate due to budget controller firmware
-- Full OS reinstall was required; all pve2 VMs rebuilt from scratch
-- Resolution: Samsung 990 Pro installed as replacement
-
----
-
-## VM Inventory
-
-| VMID | Name | Node | IP | Role |
-|---|---|---|---|---|
-| 100 | UbuntuSuricata | pve1 | 192.168.40.10 | ELK Stack — Elasticsearch, Kibana, Logstash, Fleet Server, Elastic Agent |
-| 101 | ELKFleetServer | pve1 | 192.168.40.20 | OpenVAS/Greenbone (Docker Compose) |
-| 102 | HashiCorpVault | pve2 | 192.168.40.30 | HashiCorp Vault PKI |
-| 103 | AD-DomainController | pve2 | 192.168.60.10 | Windows Server 2025 Domain Controller |
-
----
-
-## ELK Stack — 192.168.40.10
-
-### Services
-| Service | Port | Protocol |
-|---|---|---|
-| Elasticsearch | 9200 | HTTPS |
-| Kibana | 5601 | HTTPS |
-| Logstash Beats input | 5044 | TLS |
-| Fleet Server | 8220 | HTTPS |
-
-### Elasticsearch SSL
-- Certificate: Vault-issued `elk-stack_crt.pem` (signed by Homelab-Intermediate-CA)
-- CA fingerprint: stored in `/etc/kibana/kibana.yml` as `ca_trusted_fingerprint`
-- Cert files: `/etc/elasticsearch/certs/` and `/etc/ssl/homelab/`
-
-### Fleet Server
-- Policy ID: `fleet-server-policy`
-- Service token: generated via Elasticsearch API
-- Re-enrollment is required any time the Elasticsearch HTTP certificate changes
-
----
-
-## PKI Infrastructure — HashiCorp Vault
-
-### Instance
-| Field | Value |
-|---|---|
-| URL | http://192.168.40.30:8200 |
-| Storage backend | File (/opt/vault/data) |
-| Auth method | Shamir (5 shares, threshold 3) |
-| Version | 2.0.3 |
-| Auto-unseal | Not configured |
-
-### CA Hierarchy
-```
-Homelab-Root-CA          (RSA-4096, 10 year)
-  └── Homelab-Intermediate-CA   (RSA-4096, 5 year)
-        └── Leaf certificates          (RSA-4096, 1 year)
-```
-
-### Vault PKI Paths
-| Path | Purpose |
-|---|---|
-| `pki/` | Root CA |
-| `pki_int/` | Intermediate CA |
-| `pki_int/roles/homelab-role` | Leaf certificate issuance |
-
-The homelab-role permits any common name, any IP SAN, and subdomains of `zmh.homelab`, `zmh.local`, and `homelab`.
-
-### Root CA
-- CN: Homelab-Root-CA
-- Valid: Jul 26 2026 – Jul 23 2036
-- Trust store: Windows `Cert:\LocalMachine\Root`
-
-### Intermediate CA
-- CN: Homelab-Intermediate-CA
-- Valid: Jul 26 2026 – Jul 25 2031
-- Trust store: Windows `Cert:\LocalMachine\CA`
-
-### Bulk Certificate Issuance
-```bash
-export VAULT_ADDR='http://192.168.40.30:8200'
-vault login
-
-cat > /tmp/issue_certs.sh << 'EOF'
-#!/bin/bash
-export VAULT_ADDR='http://192.168.40.30:8200'
-mkdir -p /tmp/certs
-
-issue_cert() {
-  NAME=$1; IP=$2; CN=$3
-  vault write -format=json pki_int/issue/homelab-role \
-    common_name="$CN" ip_sans="$IP" ttl="8760h" > /tmp/certs/${NAME}.json
-  jq -r '.data.certificate' /tmp/certs/${NAME}.json > /tmp/certs/${NAME}_crt.pem
-  jq -r '.data.private_key' /tmp/certs/${NAME}.json > /tmp/certs/${NAME}_key.pem
-  jq -r '.data.issuing_ca' /tmp/certs/${NAME}.json > /tmp/certs/${NAME}_ca.pem
-}
-
-issue_cert "opnsense"     "192.168.1.1,192.168.99.1"  "opnsense.zmh.homelab"
-issue_cert "proxmox-pve1" "192.168.99.2"               "pve1.zmh.homelab"
-issue_cert "proxmox-pve2" "192.168.99.50"              "pve2.zmh.homelab"
-issue_cert "elk-stack"    "192.168.40.10"              "elk.zmh.homelab"
-issue_cert "vault"        "192.168.40.30"              "vault.zmh.homelab"
-issue_cert "openvas"      "192.168.40.20"              "openvas.zmh.homelab"
-
-vault read -field=certificate pki/cert/ca > /tmp/certs/homelab-root-ca.pem
-EOF
-chmod +x /tmp/issue_certs.sh
-bash /tmp/issue_certs.sh
+OPNsense Filebeat --TLS/5044--> Logstash --> Elasticsearch --> Kibana
+Windows Elastic Agent --------> Fleet Server -------------> Elasticsearch
+Suricata ---------------------> custom alert/log indices --> Kibana
 ```
 
 ---
 
-## TLS Certificate Deployment
+## Security Objectives
 
-### Current Status
-| Service | Certificate | Status |
-|---|---|---|
-| Elasticsearch | elk-stack_crt.pem | Active |
-| Kibana | elk-stack_crt.pem | Active |
-| Logstash (Beats input) | elk-stack_crt.pem | Active |
-| Fleet Server | Internal PKI (re-enrolled) | Active |
-| OPNsense web UI | opnsense_crt.pem | Active |
-| Proxmox pve1 | proxmox-pve1_crt.pem | Active |
-| Proxmox pve2 | proxmox-pve2_crt.pem | Active |
-| OpenVAS/nginx | openvas_crt.pem | Active |
+The lab was designed around the following controls and workflows:
 
-### Certificate File Locations — ELK VM (192.168.40.10)
-| File | Path | Owner | Mode |
+- **Least-privilege inter-VLAN routing** with explicit service exceptions and default-deny behavior.
+- **Centralized security telemetry** from firewall, IDS, Linux, and Windows endpoints.
+- **Detection validation** by generating controlled traffic from Kali and confirming corresponding Suricata/Elastic evidence.
+- **Detection tuning** by investigating noisy signatures and separating true scan behavior from false positives.
+- **Internal PKI** with an offline-style root/intermediate hierarchy managed through HashiCorp Vault.
+- **Vulnerability management** using Greenbone/OpenVAS against internal systems.
+- **Active Directory visibility** through Windows event collection and domain-service validation.
+- **Management-plane isolation** by separating hypervisor/switch administration from user and red-team networks.
+
+---
+
+## Network Segmentation
+
+| VLAN | Subnet | Purpose | Security Posture |
 |---|---|---|---|
-| ELK cert | `/etc/ssl/homelab/elk-stack_crt.pem` | root:logstash | 640 |
-| ELK key | `/etc/ssl/homelab/elk-stack_key.pem` | root:logstash | 640 |
-| CA chain | `/etc/ssl/homelab/homelab-root-ca.pem` | root:logstash | 640 |
-| Elasticsearch cert copy | `/etc/elasticsearch/certs/elk-stack_crt.pem` | root:elasticsearch | 640 |
-| Elasticsearch key copy | `/etc/elasticsearch/certs/elk-stack_key.pem` | root:elasticsearch | 640 |
-| Kibana cert | `/etc/kibana/kibana-cert.pem` | root:kibana | 640 |
-| Kibana key | `/etc/kibana/kibana-key.pem` | root:kibana | 640 |
-| Kibana CA | `/etc/kibana/homelab-root-ca.pem` | root:kibana | 640 |
+| 10 | `192.168.10.0/24` | Main / Admin | Trusted administration network |
+| 20 | `192.168.20.0/24` | WiFi | Internet-oriented; blocked from routed internal networks |
+| 30 | `192.168.30.0/24` | Wired desktop | Limited / Internet-oriented |
+| 40 | `192.168.40.0/24` | Security services | ELK, OpenVAS, Vault |
+| 50 | `192.168.50.0/24` | Windows workstation | Domain member; AD and Elastic exceptions only |
+| 60 | `192.168.60.0/24` | Domain Controller | Restricted server segment |
+| 70 | `192.168.70.0/24` | Red Team | Kali testing segment with explicit target exceptions |
+| 99 | `192.168.99.0/24` | Management | Proxmox, switch, firewall management |
 
-### Certificate File Locations — OPNsense
-| File | Path |
-|---|---|
-| CA chain (intermediate + root concatenated) | `/usr/local/etc/beats/certs/Homelab-CA_crt.pem` |
+### Protected Networks Alias
 
-### Proxmox Certificate Deployment
-```bash
-# pve1
-scp proxmox-pve1_crt.pem root@192.168.99.2:/etc/pve/nodes/homelabprox/pveproxy-ssl.pem
-scp proxmox-pve1_key.pem root@192.168.99.2:/etc/pve/nodes/homelabprox/pveproxy-ssl.key
-systemctl restart pveproxy
+OPNsense uses a `Protected_Networks` alias containing all internal routed VLAN subnets. Segments that should not freely traverse the environment receive a logged block rule to this alias, with only necessary service-specific exceptions placed above it.
 
-# pve2
-scp proxmox-pve2_crt.pem root@192.168.99.50:/etc/pve/nodes/pve2/pveproxy-ssl.pem
-scp proxmox-pve2_key.pem root@192.168.99.50:/etc/pve/nodes/pve2/pveproxy-ssl.key
-systemctl restart pveproxy
-```
+This makes the policy easier to maintain than duplicating individual inter-VLAN deny rules and provides cleaner telemetry when a host attempts to cross a trust boundary.
 
-### OpenVAS Certificate Deployment
-```bash
-CERT_VOL=/var/lib/docker/volumes/greenbone-community-edition_nginx_certificates_vol/_data
-sudo cp openvas_crt.pem $CERT_VOL/server.cert.pem
-sudo cp openvas_key.pem $CERT_VOL/server.key
-sudo docker restart greenbone-community-edition-nginx-1
-```
+![OPNsense VLAN definitions](docs/images/opnsense/opnsense-vlans.webp)
 
-### Windows Trust Store
-```powershell
-Import-Certificate -FilePath "homelab-root-ca.pem" -CertStoreLocation Cert:\LocalMachine\Root
-Import-Certificate -FilePath "elk-stack_ca.pem" -CertStoreLocation Cert:\LocalMachine\CA
-```
+*OPNsense VLAN configuration for the segmented lab networks.*
 
-### CA Chain File Creation
-```powershell
-Get-Content "elk-stack_ca.pem", "homelab-root-ca.pem" | Set-Content "homelab-ca-chain.pem"
-```
+![OPNsense interfaces](docs/images/opnsense/opnsense-interfaces.webp)
 
-### Fleet Server Re-Enrollment
-```bash
-# Generate new service token
-curl -u elastic:<password> -X POST \
-  "https://192.168.40.10:9200/_security/service/elastic/fleet-server/credential/token/<token-name>" -k
-
-# Re-enroll
-sudo elastic-agent enroll \
-  --fleet-server-es=https://192.168.40.10:9200 \
-  --fleet-server-service-token=<token> \
-  --fleet-server-policy=fleet-server-policy \
-  --fleet-server-es-ca-trusted-fingerprint=<sha256-fingerprint> \
-  --fleet-server-port=8220 \
-  --fleet-server-es-insecure \
-  --force
-
-sudo systemctl restart elastic-agent
-```
-
-### Get Elasticsearch Certificate Fingerprint
-```bash
-sudo openssl x509 -in /etc/elasticsearch/certs/elk-stack_crt.pem \
-  -noout -fingerprint -sha256 | sed 's/://g' | cut -d= -f2 | tr '[:lower:]' '[:upper:]'
-```
+*Routed interfaces used to enforce policy between security zones.*
 
 ---
 
-## Pipeline Architecture
+## OPNsense Firewall & IDS
 
-```
+![OPNsense dashboard](docs/images/opnsense/dashboard.webp)
+
+*OPNsense provides the central routing, firewall policy, IDS/IPS, and telemetry-export functions for the lab.*
+
+### Firewall Policy
+
+The final rulesets follow a consistent pattern:
+
+1. **Specific required service exceptions**
+2. **Block to `Protected_Networks`**
+3. **Limited Internet services where required**
+4. **Logged default deny**
+
+Routine successful traffic is not logged unless useful for a specific security workflow; meaningful deny rules are logged for analysis in Elastic.
+
+### VLAN 40 — Security Services
+
+The security segment contains ELK, OpenVAS, and Vault. OpenVAS receives explicit exceptions to scan the intended Windows networks, while other security-service traffic is prevented from freely reaching protected internal segments.
+
+![VLAN 40 firewall rules](docs/images/opnsense/vlan40-firewall-rules.webp)
+
+### VLAN 50 — Windows Workstation
+
+The Windows workstation segment is restricted to the services needed for Active Directory and Elastic Agent communication. AD-specific traffic is directed to DC01, while direct cross-VLAN access is denied unless explicitly allowed.
+
+![VLAN 50 firewall rules](docs/images/opnsense/vlan50-firewall-rules.webp)
+
+### VLAN 60 — Domain Controller
+
+DC01 is permitted to reach required Elastic services and the OPNsense DNS/DHCP path while remaining blocked from arbitrary access to other internal networks.
+
+![VLAN 60 firewall rules](docs/images/opnsense/vlan60-firewall-rules.webp)
+
+### VLAN 70 — Red Team
+
+Kali is intentionally isolated. The segment can reach explicitly approved lab targets for testing, but broad access to protected networks is denied and logged.
+
+![VLAN 70 firewall rules](docs/images/opnsense/vlan70-firewall-rules.webp)
+
+### VLAN 99 — Management
+
+Management traffic is kept separate from normal user workloads. The VLAN is used for Proxmox, switch, and firewall administration and follows the same explicit-service/default-deny model.
+
+![VLAN 99 firewall rules](docs/images/opnsense/vlan99-firewall-rules.webp)
+
+### Suricata IDS/IPS
+
+Suricata runs on OPNsense and provides network-level alerting that is forwarded into Elastic for correlation and dashboarding.
+
+![Suricata settings](docs/images/opnsense/suricata-settings.webp)
+
+*Intrusion detection configuration on OPNsense.*
+
+![Suricata alerts](docs/images/opnsense/suricata-alerts.webp)
+
+*Live Suricata alert evidence generated by lab traffic.*
+
+### Filebeat Export
+
+OPNsense Filebeat forwards firewall and Suricata telemetry to Logstash over TLS.
+
+![OPNsense Filebeat settings](docs/images/opnsense/filebeat-settings.webp)
+
+---
+
+## Elastic SIEM & Telemetry Pipeline
+
+### Pipeline
+
+```text
 OPNsense (Filebeat)
     |
-    | TLS — port 5044
+    | TLS :5044
     v
-Logstash (192.168.40.10)
-    |-- suricata + alert      --> suricata-alerts-YYYY.MM.dd
-    |-- suricata (other)      --> suricata-logs-YYYY.MM.dd
-    |-- firewall              --> firewall-logs-YYYY.MM.dd
-    |-- dns                   --> dns-logs-YYYY.MM.dd
-    |-- dhcp                  --> dhcp-logs-YYYY.MM.dd
-    |
-    | HTTPS
+Logstash
+    |-- Suricata alerts  --> suricata-alerts-*
+    |-- Suricata logs    --> suricata-logs-*
+    |-- Firewall logs    --> firewall-logs-*
+    |-- DNS logs         --> dns-logs-*
+    |-- DHCP logs        --> dhcp-logs-*
     v
-Elasticsearch (192.168.40.10:9200)
+Elasticsearch
     |
     v
-Kibana (https://192.168.40.10:5601)
+Kibana
 
-Elastic Agent (Fleet Server policy — Ubuntu VM)
-    |-- system logs, auth, syslog --> logs-*
-    |-- system metrics            --> metrics-*
+Elastic Agent / Fleet
+    |-- Windows Security/System/Application logs
+    |-- Linux system/auth logs
+    |-- Endpoint telemetry
     v
-Elasticsearch via Fleet Server (port 8220)
-
-Elastic Agent (Windows-EndPoints policy — Main PC)
-    |-- Windows Event Logs (Security, System, Application)
-    |-- System metrics
-    v
-Fleet Server → Elasticsearch
+Elasticsearch
 ```
+
+### Fleet
+
+Fleet centrally manages the Elastic Agents used by the lab systems.
+
+![Elastic Fleet agents](docs/images/kibana/fleet-agents.webp)
+
+### Data Views
+
+Separate Kibana data views make firewall, Suricata, and endpoint telemetry easier to query without losing the underlying index separation.
+
+![Kibana data views](docs/images/kibana/data-views.webp)
+
+### Security Overview Dashboard
+
+A custom Kibana dashboard summarizes the most useful defensive signals: Suricata alerts, internal firewall blocks, Windows failed logons, alert trends, blocked destination ports, and top Suricata signatures.
+
+![Kibana security dashboard part 1](docs/images/kibana/security-dashboard-part1.webp)
+
+![Kibana security dashboard part 2](docs/images/kibana/security-dashboard-part2.webp)
+
+The dashboard is intended to answer three questions quickly:
+
+- **What is being blocked?**
+- **What is Suricata detecting?**
+- **Are endpoint authentication events showing suspicious activity?**
+
+### Firewall Evidence in Discover
+
+A controlled Kali-to-security-network connection attempt is visible in Kibana with the source, destination, interface, and block action preserved.
+
+![Firewall block VLAN70](docs/images/kibana/firewall-block-vlan70.webp)
+
+![Firewall block VLAN70 to VLAN40](docs/images/kibana/firewall-block-vlan70-to-vlan40.webp)
+
+### Windows Failed Logons
+
+Windows Security Event ID `4625` is collected from the domain workstation and can be queried directly in Kibana.
+
+![Windows failed logon query](docs/images/kibana/windows-failed-logon.webp)
+
+This validates the endpoint portion of the pipeline independently of network IDS data.
 
 ---
 
-## Key Configuration Files
+## Detection Engineering & Validation
 
-### Logstash — `/etc/logstash/conf.d/suricata.conf`
-**Input:**
-```
-beats {
-  port => 5044
-  host => "0.0.0.0"
-  ssl_enabled => true
-  ssl_certificate => "/etc/ssl/homelab/elk-stack_crt.pem"
-  ssl_key => "/etc/ssl/homelab/elk-stack_key.pem"
-  ssl_certificate_authorities => ["/etc/ssl/homelab/homelab-root-ca.pem"]
-  ssl_verify_mode => "peer"
-  ssl_supported_protocols => ["TLSv1.3"]
-}
+The lab is used as a closed-loop validation environment:
+
+```text
+Generate known activity -> Observe network/endpoint telemetry -> Query in Elastic
+-> Confirm detection -> Tune noise -> Repeat
 ```
 
-**Output:**
-```
-elasticsearch {
-  hosts => ["https://192.168.40.10:9200"]
-  user => "elastic"
-  password => "<ELASTIC_PASSWORD>"
-  ssl_certificate_verification => false
-  index => "suricata-alerts-%{+YYYY.MM.dd}"
-}
-```
+### Nmap Validation
 
-### OPNsense Filebeat — `/usr/local/etc/beats/filebeat.yml`
-```yaml
-output.logstash:
-  hosts: ["192.168.40.10:5044"]
-  ssl.enabled: true
-  ssl.certificate_authorities: ["/usr/local/etc/beats/certs/Homelab-CA_crt.pem"]
-```
+Controlled Nmap activity from the Kali segment is used to validate that scan telemetry reaches Suricata and Elastic.
 
-### Kibana — `/etc/kibana/kibana.yml`
-```yaml
-server.ssl.enabled: true
-server.ssl.certificate: /etc/kibana/kibana-cert.pem
-server.ssl.key: /etc/kibana/kibana-key.pem
-elasticsearch.hosts: [https://192.168.40.10:9200]
-elasticsearch.ssl.certificateAuthorities: [/etc/kibana/homelab-root-ca.pem]
-xpack.fleet.outputs: [{..., ca_trusted_fingerprint: <ES_CA_FINGERPRINT>}]
-xpack.encryptedSavedObjects.encryptionKey: "<KIBANA_ENCRYPTION_KEY>"
-```
+![Active Nmap scan in alerts](docs/images/kibana/active-nmap-alert.webp)
 
-### Elasticsearch — `/etc/elasticsearch/elasticsearch.yml`
-```yaml
-xpack.security.http.ssl:
-  enabled: true
-  certificate: /etc/elasticsearch/certs/elk-stack_crt.pem
-  key: /etc/elasticsearch/certs/elk-stack_key.pem
+![Nmap scan detected in Suricata data view](docs/images/kibana/nmap-suricata-dataview.webp)
 
-xpack.security.transport.ssl:
-  enabled: true
-  verification_mode: certificate
-  keystore.path: certs/transport.p12
-  truststore.path: certs/transport.p12
+### Detection Tuning Example
 
-xpack.security.http.ssl.client_authentication: none
-xpack.security.http.ssl.supported_protocols: [TLSv1.3]
-```
+During dashboard review, the signature `ET SCAN NMAP -sA (1)` was disproportionately noisy. Investigation showed many events with public HTTPS servers as the source, source port `443`, internal WiFi clients as destinations, and high ephemeral destination ports.
+
+That pattern was consistent with **return HTTPS traffic being misclassified by the legacy signature**, not actual internal Nmap ACK scanning. The finding demonstrated an important SOC workflow: a high alert count is not automatically a high-risk condition; the underlying network direction, ports, and context must be investigated before escalating.
+
+The result was a targeted recommendation to suppress/disable the individual noisy SID rather than disabling the broader ET SCAN ruleset.
+
+### Runtime Field for Blocked Destination Ports
+
+OPNsense `filterlog` data delivered through the custom Logstash pipeline preserved destination ports inside the raw `rest` field instead of mapping them into an ECS destination-port field. A Kibana runtime field was created to extract TCP/UDP destination ports so the dashboard could visualize the most commonly blocked services without requiring an immediate pipeline migration.
+
+This enabled useful investigations such as identifying:
+
+- blocked SMTP/25 traffic from a Proxmox host,
+- NTS key-establishment traffic on TCP/4460 from Vault,
+- blocked red-team testing traffic,
+- expected NetBIOS and DNS chatter crossing restricted boundaries.
 
 ---
 
-## OPNsense Filebeat
+## Active Directory Lab
 
-### Update Survival
-OPNsense updates regenerate the active Filebeat config from a template. All persistent changes must be made to the template, not the output file.
+The Windows environment uses the `zmh.homelab` domain with Windows Server 2025 as DC01 and a Windows 11 domain workstation.
 
-| File | Path |
-|---|---|
-| Template | `/usr/local/opnsense/service/templates/OPNsense/Beats/filebeat.yml` |
-| Active config | `/usr/local/etc/beats/filebeat.yml` |
+### Domain Controller
 
-After editing the template:
-```bash
-configctl template reload OPNsense/Beats
-```
+![Active Directory domain controller OU](docs/images/windows/aduc-domain-controller.webp)
 
-The active config is locked with BSD immutable flags to prevent silent overwrites:
-```bash
-chflags schg /usr/local/etc/beats/filebeat.yml    # lock
-chflags noschg /usr/local/etc/beats/filebeat.yml  # unlock
-```
+### Domain Workstation
 
-### Post-Update Recovery
-```bash
-chflags noschg /usr/local/etc/beats/filebeat.yml
-vi /usr/local/etc/beats/filebeat.yml
-chflags schg /usr/local/etc/beats/filebeat.yml
-service filebeat restart
-filebeat test output -c /usr/local/etc/beats/filebeat.yml
-```
+![Active Directory computer OU](docs/images/windows/aduc-computer-ou.webp)
+
+### Domain Discovery from ZMH-WS1
+
+The workstation was used to validate AD service discovery with `nltest` and DNS SRV lookups. The results confirmed:
+
+- workstation domain identity,
+- discovery of `DC01.zmh.homelab`,
+- DC address `192.168.60.10`,
+- LDAP/Kerberos/GC/DNS roles,
+- `_ldap._tcp.dc._msdcs.zmh.homelab` service discovery.
+
+The session was initiated from Kali through RDP after validating that TCP/3389 was reachable on the explicitly permitted workstation target.
+
+![RDP workstation domain enumeration](docs/images/kali/rdp-ws1-domain-enumeration.webp)
+
+This gives the lab both **administrative validation** and **purple-team telemetry generation** from the same workflow.
 
 ---
 
-## Backup Infrastructure
+## HashiCorp Vault PKI
 
-### Hardware
-| Component | Detail |
-|---|---|
-| Drive | Seagate ST500LM021 500GB HDD — pve2 `/dev/sda` |
-| ZFS Pool | `backup-pool` (single disk) |
-| Mount point | `/backup-pool` |
-| NFS export | pve2 exports `/backup-pool/dump` to pve1 |
-| pve1 mount | `/backup-pool/dump` (fstab) |
+Vault provides an internal certificate authority rather than relying on self-signed leaf certificates for every service.
 
-### Backup Jobs
-| VMID | VM | Node | Schedule | Retention |
-|---|---|---|---|---|
-| 102 | HashiCorpVault | pve2 | 00:00 daily | Daily 7, Weekly 4 |
-| 100 | UbuntuSuricata (ELK) | pve1 | 01:00 daily | Daily 7, Weekly 4 |
+### CA Hierarchy
 
-### Compressed Backup Sizes (ZSTD)
-| VM | Provisioned | Compressed |
-|---|---|---|
-| Vault | 32GB | ~3.9GB |
-| ELK | 112GB | ~23GB |
-
-### ZFS Mirror Upgrade
-When 4TB drives are added, convert the single-disk pool to a mirror without data loss:
-```bash
-zpool attach backup-pool sda /dev/sdb
+```text
+Homelab-Root-CA          RSA-4096 / 10 years
+    |
+    +-- Homelab-Intermediate-CA   RSA-4096 / 5 years
+            |
+            +-- Service leaf certificates   1 year
 ```
 
-### Backup Verification
-```bash
-zpool list backup-pool
-zpool status backup-pool
-du -sh /backup-pool/dump/*
-```
+The root and intermediate CAs are separated into distinct Vault PKI mounts, with service certificates issued through an intermediate role.
+
+### Root CA
+
+![Vault root CA](docs/images/vault/root-ca.webp)
+
+### Intermediate CA
+
+![Vault intermediate CA](docs/images/vault/intermediate-ca.webp)
+
+### Issued Service Certificates
+
+![Vault service certificates](docs/images/vault/all-service-certificates.webp)
+
+![Vault leaf certificate](docs/images/vault/vault-leaf-certificate.webp)
+
+![ELK leaf certificate](docs/images/vault/elk-leaf-certificate.webp)
+
+### Browser Trust Validation
+
+The Vault-issued Kibana certificate chains successfully through the internal intermediate and root CA in the workstation trust store.
+
+![Kibana trusted Vault certificate](docs/images/vault/kibana-trusted-certificate.webp)
+
+This PKI is used to secure internal services including Elastic/Kibana, Logstash ingestion, OPNsense management, Proxmox, and OpenVAS.
+
+> Private keys, Vault unseal shares, root tokens, service tokens, and passwords are intentionally excluded from this repository.
 
 ---
 
-## Active Directory
+## Vulnerability Management
 
-### Domain Controller — VM 103
-| Field | Value |
-|---|---|
-| Domain | zmh.homelab |
-| NetBIOS | ZMH |
-| DC hostname | WIN-HEKTRP8ODQR.zmh.homelab |
-| IP | 192.168.60.10 |
-| VLAN | 60 |
-| OS | Windows Server 2025 |
-| Forest/Domain level | Windows Server 2016 |
+Greenbone/OpenVAS is deployed in the security-services VLAN and is allowed to scan only explicitly authorized internal targets through OPNsense exceptions.
 
-### FSMO Roles
-All five FSMO roles held by WIN-HEKTRP8ODQR:
-- Schema Master
-- Domain Naming Master
-- PDC Emulator
-- RID Pool Manager
-- Infrastructure Master
+### ELK Scan Report
 
-### DNS
-- DC serves as DNS for the `zmh.homelab` zone
-- DNS forwarder configured to OPNsense (192.168.60.1)
-- NTP synced to `time.windows.com`
+![OpenVAS ELK report](docs/images/openvas/elk-scan-report.webp)
 
-### DC Health Check Commands
-```powershell
-dcdiag /q
-nslookup -type=srv _ldap._tcp.dc._msdcs.zmh.homelab
-w32tm /query /status
-netdom query fsmo
-```
+### Findings
+
+![OpenVAS ELK findings](docs/images/openvas/elk-scan-results.webp)
+
+The scanner is intentionally separated from the targets it assesses. Firewall rules permit the scanner's required paths rather than giving the entire security VLAN unrestricted access to internal networks.
 
 ---
 
-## Elasticsearch Index Management
-
-### ILM Policy
-- Policy: `homelab-30-day`
-- Retention: 30 days
-- Applied to: `suricata-alerts-template`, `suricata-logs-template`, `firewall-logs-template`
-
-### Index Patterns
-| Index | Source | Ingest Path |
-|---|---|---|
-| `suricata-alerts-*` | OPNsense Suricata | Filebeat → Logstash |
-| `suricata-logs-*` | OPNsense Suricata | Filebeat → Logstash |
-| `firewall-logs-*` | OPNsense filter | Filebeat → Logstash |
-| `dns-logs-*` | OPNsense DNS | Filebeat → Logstash |
-| `dhcp-logs-*` | OPNsense DHCP | Filebeat → Logstash |
-| `logs-*` | Ubuntu system | Elastic Agent |
-| `metrics-*` | Ubuntu metrics | Elastic Agent |
-
----
-
-## Pending Tasks
-
-| Priority | Task |
-|---|---|
-| High | Migrate ELK (VM 100) from pve1 to pve2 |
-| High | Vault auto-unseal configuration |
-| Medium | Windows 11 client VM — domain join, Sysmon, Elastic Agent |
-| Medium | OpenVAS backup job |
-| Medium | 4TB HDD pair — ZFS mirror upgrade |
-| Low | SPAN port configuration on Cisco 3560CX |
-| Low | Logstash deprecation warnings — replace ssl_verify_mode |
-| Low | GitHub README update |
-
----
-
-## Reference Commands
-
-### Pipeline Health
-```bash
-curl -u elastic:<password> https://192.168.40.10:9200 -k
-curl -u elastic:<password> "https://192.168.40.10:9200/_cat/indices?v&s=index" -k
-sudo systemctl status logstash
-sudo tail -50 /var/log/logstash/logstash-plain.log
-sudo /opt/Elastic/Agent/elastic-agent status
-filebeat test output -c /usr/local/etc/beats/filebeat.yml
-```
-
-### Service Restart Order
-```bash
-sudo systemctl restart elasticsearch
-sudo systemctl restart logstash
-sudo systemctl restart kibana
-sudo systemctl restart elastic-agent
-```
-
-### Logstash — Force Kill
-```bash
-sudo pkill -9 -f logstash && sudo systemctl start logstash
-```
-
-### OPNsense Filebeat
-```bash
-service filebeat status
-service filebeat restart
-filebeat test output -c /usr/local/etc/beats/filebeat.yml
-```
-
-### Vault
-```bash
-export VAULT_ADDR='http://192.168.40.30:8200'
-vault status
-vault login
-vault operator unseal
-```
+## Proxmox & Switching
 
 ### Proxmox Cluster
-```bash
-pvecm status
-pvecm nodes
-```
 
-### pve2 Bridge VLAN Persistence
-```bash
-# /etc/network/interfaces — post-up entries under vmbr0
-post-up bridge vlan add vid 40 dev nic0
-post-up bridge vlan add vid 40 dev vmbr0 self
-post-up bridge vlan add vid 60 dev nic0
-post-up bridge vlan add vid 60 dev vmbr0 self
-```
+The environment runs across two Proxmox nodes. VLAN-aware bridges carry tagged VM networks while VLAN 99 remains dedicated to infrastructure management.
+
+![Proxmox cluster](docs/images/proxmox/cluster-gui.webp)
+
+### Cisco 3560CX
+
+The Cisco switch provides the physical VLAN trunks and access-port assignments between OPNsense, the Proxmox hosts, and endpoint networks.
+
+![Cisco VLAN brief](docs/images/cisco/vlan-brief.webp)
+
+![Cisco trunk interfaces](docs/images/cisco/trunk-interfaces.webp)
+
+This keeps Layer 2 segmentation explicit and allows OPNsense to remain the Layer 3 policy enforcement point for routed VLAN traffic.
+
+---
+
+## Key Engineering Decisions
+
+### 1. Default-Deny Between Trust Zones
+
+Rather than using a flat network with broad `allow any` policies, the lab treats each VLAN as a different security zone. Required flows are documented and explicitly permitted.
+
+### 2. Admin Access Originates from a Trusted Segment
+
+Administrative RDP/SSH sessions originate from VLAN 10. Because OPNsense rules are evaluated on the ingress interface and connections are stateful, restrictive egress policies on server VLANs do not require redundant response rules.
+
+### 3. Red-Team Traffic Is Constrained
+
+Kali is not placed on a trusted network. Testing exceptions are scoped to intended targets so offensive validation does not weaken the architecture being tested.
+
+### 4. Security Telemetry Is Encrypted in Transit
+
+OPNsense-to-Logstash ingestion uses TLS, while the internal PKI provides trusted certificates for management and Elastic services.
+
+### 5. Alert Volume Is Treated as an Investigation Problem
+
+Dashboard spikes are investigated by source/destination, interface, port, protocol, and direction. This approach exposed both benign infrastructure issues and IDS false positives without simply suppressing broad categories of alerts.
+
+---
+
+## Lessons Learned
+
+### Firewall telemetry can expose configuration problems
+
+After hardening VLAN 99, Elastic showed repeated TCP/25 blocks from a Proxmox host. Investigation traced them to the local Postfix/sendmail notification path attempting direct SMTP delivery while a separate authenticated SMTP notification target was already configured. The firewall was doing exactly what it should: denying direct outbound SMTP while providing evidence of the unexpected application behavior.
+
+### Not every unusual port is malicious
+
+TCP/4460 blocks from the Vault server initially looked suspicious. Investigation identified them as Network Time Security key-establishment traffic associated with secure time synchronization. A narrow source-specific exception was preferable to a broad allow rule.
+
+### IDS rules require context
+
+A high-count Nmap signature turned out to be a false-positive pattern on HTTPS return traffic. Looking at traffic direction and ephemeral ports prevented an incorrect conclusion and led to targeted rule tuning.
+
+### Segmentation and detection reinforce each other
+
+The firewall does more than prevent traffic: its deny events create high-value telemetry that can be correlated with Suricata and endpoint events. A blocked Kali connection therefore becomes both a preventive control and a detection-validation artifact.
+
+### Infrastructure failures are part of security engineering
+
+A failed pve2 NVMe drive required a Proxmox reinstall and VM rebuild. Rebuilding Vault, restoring certificates, re-enrolling Elastic components, and validating trust relationships reinforced the value of documented configuration, backups, and reproducible service dependencies.
+
+---
+
+## Technology Stack
+
+| Area | Technologies |
+|---|---|
+| Firewall / Routing | OPNsense, pf, VLANs, NAT, DHCP relay, Unbound |
+| Switching | Cisco Catalyst 3560CX, 802.1Q trunks |
+| IDS / Network Security | Suricata, Emerging Threats rules |
+| SIEM / Search | Elasticsearch, Logstash, Kibana |
+| Endpoint / Agent Management | Elastic Agent, Fleet, Windows Event Logs |
+| Identity | Windows Server 2025, Active Directory, DNS, Kerberos, LDAP |
+| PKI | HashiCorp Vault, X.509, internal root/intermediate CA |
+| Vulnerability Management | Greenbone / OpenVAS |
+| Virtualization | Proxmox VE cluster |
+| Offensive Validation | Kali Linux, Nmap, FreeRDP |
+| Operating Systems | Windows 11, Windows Server, Ubuntu Linux, Kali Linux, FreeBSD-based OPNsense |
+
+---
+
+## Project Status
+
+The lab is operational and continues to evolve. Current work emphasizes **detection quality, telemetry enrichment, segmentation validation, and purple-team exercises** rather than adding services for their own sake.
+
+Future improvements may include additional endpoint detections, more structured ECS normalization in Logstash, automated certificate renewal, expanded vulnerability-management workflows, and ATT&CK-mapped detection documentation.
+
+---
+
+## About This Project
+
+This project was built as hands-on preparation for **SOC Analyst, Security Analyst, and Detection Engineering** work. It is intentionally designed to demonstrate not only that security tools were installed, but that they were **integrated, constrained, tested, observed, and tuned** as part of a coherent defensive architecture.
