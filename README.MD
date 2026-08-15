@@ -323,8 +323,6 @@ destination.ip : "192.168.0.0/16"
 
 This preserves visibility across all internal VLANs while excluding public Internet return traffic that previously triggered the same legacy signature.
 
-![Active Nmap scan in alerts](docs/images/kibana/active-nmap-alert.webp)
-
 ![Nmap scan detected in Suricata data view](docs/images/kibana/nmap-suricata-dataview.webp)
 
 ### Linux SSH Password-Guessing Detection
