@@ -7,7 +7,7 @@ These files are sanitized reference copies of the active configuration used in t
 | File | Purpose |
 |---|---|
 | [`sanitized/filebeat-opnsense.yml`](sanitized/filebeat-opnsense.yml) | OPNsense Filebeat inputs and TLS-encrypted forwarding to Logstash on TCP/5044. |
-| [`sanitized/logstash-opnsense.conf`](sanitized/logstash-opnsense.conf) | Beats ingestion, Suricata ECS enrichment, severity tagging, firewall/DNS/DHCP/auth parsing, and Elasticsearch index routing. |
+| [`sanitized/logstash-opnsense.conf`](sanitized/logstash-opnsense.conf) | Beats ingestion, Suricata ECS enrichment, severity tagging, firewall/DNS/DHCP/auth parsing, verified TLS to Elasticsearch, and index routing. |
 | [`sanitized/elasticsearch.yml`](sanitized/elasticsearch.yml) | Elasticsearch security and TLS configuration, including the HTTP certificate chain used by Kibana, Logstash, and Elastic Agent clients. |
 | [`sanitized/kibana.yml`](sanitized/kibana.yml) | Kibana HTTPS, Elasticsearch trust, Fleet output configuration, and sanitized service-account/encryption settings. |
 | [`sanitized/suricata-local.rules`](sanitized/suricata-local.rules) | Active custom internal port-scan rule used for lab detection testing. |
@@ -27,7 +27,7 @@ OPNsense
                  ├─ DHCP logs       -> dhcp-logs-*
                  └─ OPNsense auth   -> opnsense-auth-*
 
-Elasticsearch -> Kibana / Elastic Security
+Logstash -- verified TLS --> Elasticsearch -> Kibana / Elastic Security
 ```
 
 ## ECS Normalization
@@ -57,4 +57,4 @@ This allows Elastic Security rules to use native IP/CIDR queries instead of stri
 - Certificate and key paths are retained because they document service relationships; certificate/key contents are not published.
 - Values such as `<REDACTED>` and `<CA_FINGERPRINT>` are placeholders.
 - These files document the homelab architecture and are not intended to be copied unchanged into another environment.
-- The current sanitized Logstash artifact reflects the lab state before final Logstash-to-Elasticsearch certificate-verification hardening; that setting is tracked as the next TLS improvement.
+- Logstash validates the Elasticsearch certificate chain and server identity using the internal root CA with `ssl_verification_mode => "full"`.
