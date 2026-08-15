@@ -16,6 +16,7 @@ The lab uses a bare-metal OPNsense firewall, a Cisco 3560CX switch, a two-node P
 - [OPNsense Firewall & IDS](#opnsense-firewall--ids)
 - [Elastic SIEM & Telemetry Pipeline](#elastic-siem--telemetry-pipeline)
 - [Detection Engineering & Validation](#detection-engineering--validation)
+- [Configuration Artifacts](#configuration-artifacts)
 - [Active Directory Lab](#active-directory-lab)
 - [HashiCorp Vault PKI](#hashicorp-vault-pki)
 - [Vulnerability Management](#vulnerability-management)
@@ -40,7 +41,7 @@ The lab uses a bare-metal OPNsense firewall, a Cisco 3560CX switch, a two-node P
 | OpenVAS | Greenbone vulnerability scanner | `192.168.40.20` |
 | HashiCorp Vault | Internal PKI / certificate authority | `192.168.40.30` |
 | DC01 | Windows Server 2025 AD DS / DNS | `192.168.60.10` |
-| ZMH-WS1 | Windows 11 domain workstation | VLAN 50 |
+| ZMH-WS1 | Windows 11 domain workstation | `192.168.50.171` |
 | Kali | Red-team / validation host | `192.168.70.10` |
 
 ### Traffic & Telemetry Flow
@@ -53,7 +54,7 @@ Internet / ONT
       |
       +---------------------------+
       | VLAN routing + policy     |
-      | Suricata IDS/IPS          |
+      | Suricata IDS              |
       | Filebeat telemetry        |
       +---------------------------+
       |
@@ -71,7 +72,7 @@ Cisco 3560CX
 
 OPNsense Filebeat --TLS/5044--> Logstash --> Elasticsearch --> Kibana
 Windows Elastic Agent --------> Fleet Server -------------> Elasticsearch
-Suricata ---------------------> custom alert/log indices --> Kibana
+Suricata ---------------------> custom alert/log indices --> Elastic Security
 ```
 
 ---
@@ -84,7 +85,7 @@ The lab was designed around the following controls and workflows:
 - **Centralized security telemetry** from firewall, IDS, Linux, and Windows endpoints.
 - **Detection validation** by generating controlled traffic from Kali and confirming corresponding Suricata/Elastic evidence.
 - **Detection tuning** by investigating noisy signatures and separating true scan behavior from false positives.
-- **Internal PKI** with an offline-style root/intermediate hierarchy managed through HashiCorp Vault.
+- **Internal PKI** with a root/intermediate hierarchy managed through HashiCorp Vault.
 - **Vulnerability management** using Greenbone/OpenVAS against internal systems.
 - **Active Directory visibility** through Windows event collection and domain-service validation.
 - **Management-plane isolation** by separating hypervisor/switch administration from user and red-team networks.
@@ -124,7 +125,7 @@ This makes the policy easier to maintain than duplicating individual inter-VLAN 
 
 ![OPNsense dashboard](docs/images/opnsense/dashboard.webp)
 
-*OPNsense provides the central routing, firewall policy, IDS/IPS, and telemetry-export functions for the lab.*
+*OPNsense provides the central routing, firewall policy, IDS, and telemetry-export functions for the lab.*
 
 ### Firewall Policy
 
@@ -167,9 +168,9 @@ Management traffic is kept separate from normal user workloads. The VLAN is used
 
 ![VLAN 99 firewall rules](docs/images/opnsense/vlan99-firewall-rules.webp)
 
-### Suricata IDS/IPS
+### Suricata IDS
 
-Suricata runs on OPNsense and provides network-level alerting that is forwarded into Elastic for correlation and dashboarding.
+Suricata runs on OPNsense in IDS mode and provides network-level alerting that is forwarded into Elastic for correlation, dashboards, and Security detection rules.
 
 ![Suricata settings](docs/images/opnsense/suricata-settings.webp)
 
@@ -197,16 +198,17 @@ OPNsense (Filebeat)
     | TLS :5044
     v
 Logstash
-    |-- Suricata alerts  --> suricata-alerts-*
+    |-- Suricata alerts  --> suricata-alerts-ecs-*
     |-- Suricata logs    --> suricata-logs-*
     |-- Firewall logs    --> firewall-logs-*
     |-- DNS logs         --> dns-logs-*
     |-- DHCP logs        --> dhcp-logs-*
+    |-- OPNsense auth    --> opnsense-auth-*
     v
 Elasticsearch
     |
     v
-Kibana
+Kibana / Elastic Security
 
 Elastic Agent / Fleet
     |-- Windows Security/System/Application logs
@@ -224,9 +226,32 @@ Fleet centrally manages the Elastic Agents used by the lab systems.
 
 ### Data Views
 
-Separate Kibana data views make firewall, Suricata, and endpoint telemetry easier to query without losing the underlying index separation.
+Separate Kibana data views make firewall, Suricata, and endpoint telemetry easier to query without losing the underlying index separation. A dedicated Suricata ECS data view targets `suricata-alerts-ecs-*` so detection rules do not mix the current ECS mappings with legacy Suricata alert indices.
 
 ![Kibana data views](docs/images/kibana/data-views.webp)
+
+### Suricata ECS Normalization
+
+The original custom Suricata indices dynamically mapped `source.ip` and `destination.ip` as text/keyword fields. That prevented reliable CIDR matching in Elastic Security and created field-type conflicts across historical indices.
+
+A dedicated `suricata-alerts-ecs-*` index pattern and template now map the core fields using ECS-compatible types:
+
+```text
+source.ip        -> ip
+destination.ip   -> ip
+source.port      -> long
+destination.port -> long
+```
+
+Logstash also adds security-event context to Suricata alerts:
+
+```text
+event.kind     = alert
+event.category = intrusion_detection
+event.type     = allowed
+```
+
+This allows Security rules to query internal address ranges natively while keeping the older indices intact as historical data.
 
 ### Security Overview Dashboard
 
@@ -271,19 +296,53 @@ Generate known activity -> Observe network/endpoint telemetry -> Query in Elasti
 
 ### Nmap Validation
 
-Controlled Nmap activity from the Kali segment is used to validate that scan telemetry reaches Suricata and Elastic.
+Controlled Nmap activity from Kali is used to validate that scan telemetry reaches Suricata, the ECS-normalized alert index, and Elastic Security.
+
+A validated ACK-scan test generated the following chain:
+
+```text
+Kali 192.168.70.10
+    -> Nmap ACK scan
+    -> Suricata ET SCAN NMAP -sA (1), SID 2000538
+    -> Logstash ECS normalization
+    -> suricata-alerts-ecs-*
+    -> Elastic Security detection
+```
+
+The Security rule is scoped to internal-to-internal traffic, allowing native CIDR matching after the ECS migration:
+
+```kql
+suricata.eve.alert.signature : "ET SCAN NMAP -sA (1)" AND
+source.ip : "192.168.0.0/16" AND
+destination.ip : "192.168.0.0/16"
+```
+
+This preserves visibility across all internal VLANs while excluding public Internet return traffic that previously triggered the same legacy signature.
 
 ![Active Nmap scan in alerts](docs/images/kibana/active-nmap-alert.webp)
 
 ![Nmap scan detected in Suricata data view](docs/images/kibana/nmap-suricata-dataview.webp)
 
+### Linux SSH Password-Guessing Detection
+
+Linux authentication logs are collected through Elastic Agent and evaluated by an Elastic Security EQL correlation rule. The rule detects three failed password-based SSH logins from the same source to the same host within 60 seconds.
+
+The validated events contain structured fields such as:
+
+```text
+event.action            = ssh_login
+event.outcome           = failure
+system.auth.ssh.method  = password
+system.auth.ssh.event   = Failed
+```
+
+The detection is mapped to **MITRE ATT&CK T1110.001 — Password Guessing**, while the Nmap detection maps to **T1046 — Network Service Scanning**.
+
 ### Detection Tuning Example
 
 During dashboard review, the signature `ET SCAN NMAP -sA (1)` was disproportionately noisy. Investigation showed many events with public HTTPS servers as the source, source port `443`, internal WiFi clients as destinations, and high ephemeral destination ports.
 
-That pattern was consistent with **return HTTPS traffic being misclassified by the legacy signature**, not actual internal Nmap ACK scanning. The finding demonstrated an important SOC workflow: a high alert count is not automatically a high-risk condition; the underlying network direction, ports, and context must be investigated before escalating.
-
-The result was a targeted recommendation to suppress/disable the individual noisy SID rather than disabling the broader ET SCAN ruleset.
+That pattern was consistent with **return HTTPS traffic being misclassified by the legacy signature**, not actual internal Nmap ACK scanning. Rather than treating every signature hit as equivalent, the Elastic Security rule was constrained to internal source and destination ranges. The tuned detection keeps useful internal scan coverage without promoting unrelated Internet return traffic into SOC alerts.
 
 ### Runtime Field for Blocked Destination Ports
 
@@ -295,6 +354,23 @@ This enabled useful investigations such as identifying:
 - NTS key-establishment traffic on TCP/4460 from Vault,
 - blocked red-team testing traffic,
 - expected NetBIOS and DNS chatter crossing restricted boundaries.
+
+---
+
+## Configuration Artifacts
+
+Sanitized reference copies of the active security configuration are published under [`configs/`](configs/README.md). Secrets, private keys, service tokens, Vault material, and passwords are intentionally excluded.
+
+| Artifact | Demonstrates |
+|---|---|
+| [`filebeat-opnsense.yml`](configs/sanitized/filebeat-opnsense.yml) | OPNsense log collection and TLS forwarding to Logstash |
+| [`logstash-opnsense.conf`](configs/sanitized/logstash-opnsense.conf) | Log routing, Suricata ECS normalization, GeoIP enrichment, and custom indices |
+| [`elasticsearch.yml`](configs/sanitized/elasticsearch.yml) | Elasticsearch TLS/security configuration and HTTP certificate-chain deployment |
+| [`kibana.yml`](configs/sanitized/kibana.yml) | Kibana HTTPS, Elasticsearch trust, and Fleet output configuration |
+| [`suricata-local.rules`](configs/sanitized/suricata-local.rules) | Custom internal scan detection rule |
+| [`suricata-alerts-ecs-template.json`](configs/sanitized/suricata-alerts-ecs-template.json) | Native ECS field mappings for Suricata Security alerts |
+
+The current Logstash artifact intentionally reflects the running state before final Logstash-to-Elasticsearch certificate-verification hardening; that is the next TLS improvement planned for the pipeline.
 
 ---
 
@@ -430,6 +506,10 @@ OPNsense-to-Logstash ingestion uses TLS, while the internal PKI provides trusted
 
 Dashboard spikes are investigated by source/destination, interface, port, protocol, and direction. This approach exposed both benign infrastructure issues and IDS false positives without simply suppressing broad categories of alerts.
 
+### 6. Detection Data Uses Purpose-Built ECS Mappings
+
+The Suricata Security alert path uses a dedicated ECS template rather than relying on dynamic mappings. This keeps IP fields queryable as IPs, supports CIDR logic, and separates current detection data from legacy indices with incompatible field types.
+
 ---
 
 ## Lessons Learned
@@ -444,11 +524,15 @@ TCP/4460 blocks from the Vault server initially looked suspicious. Investigation
 
 ### IDS rules require context
 
-A high-count Nmap signature turned out to be a false-positive pattern on HTTPS return traffic. Looking at traffic direction and ephemeral ports prevented an incorrect conclusion and led to targeted rule tuning.
+A high-count Nmap signature turned out to be a false-positive pattern on HTTPS return traffic. Looking at traffic direction and ephemeral ports prevented an incorrect conclusion and led to an internal-only Security detection rather than a broad noisy alert.
 
 ### Segmentation and detection reinforce each other
 
 The firewall does more than prevent traffic: its deny events create high-value telemetry that can be correlated with Suricata and endpoint events. A blocked Kali connection therefore becomes both a preventive control and a detection-validation artifact.
+
+### Certificate chains are part of telemetry reliability
+
+Elastic Agent components stopped publishing when the configured CA fingerprint could not be validated against the certificate chain presented by Elasticsearch. Troubleshooting Filebeat queue backpressure and Agent TLS errors led to rebuilding the Elasticsearch HTTP certificate as a leaf-plus-intermediate chain and correcting Fleet trust to the issuing CA. This restored ingestion and reinforced that PKI failures can become monitoring failures.
 
 ### Infrastructure failures are part of security engineering
 
@@ -463,7 +547,7 @@ A failed pve2 NVMe drive required a Proxmox reinstall and VM rebuild. Rebuilding
 | Firewall / Routing | OPNsense, pf, VLANs, NAT, DHCP relay, Unbound |
 | Switching | Cisco Catalyst 3560CX, 802.1Q trunks |
 | IDS / Network Security | Suricata, Emerging Threats rules |
-| SIEM / Search | Elasticsearch, Logstash, Kibana |
+| SIEM / Search | Elasticsearch, Logstash, Kibana, Elastic Security |
 | Endpoint / Agent Management | Elastic Agent, Fleet, Windows Event Logs |
 | Identity | Windows Server 2025, Active Directory, DNS, Kerberos, LDAP |
 | PKI | HashiCorp Vault, X.509, internal root/intermediate CA |
@@ -478,7 +562,7 @@ A failed pve2 NVMe drive required a Proxmox reinstall and VM rebuild. Rebuilding
 
 The lab is operational and continues to evolve. Current work emphasizes **detection quality, telemetry enrichment, segmentation validation, and purple-team exercises** rather than adding services for their own sake.
 
-Future improvements may include additional endpoint detections, more structured ECS normalization in Logstash, automated certificate renewal, expanded vulnerability-management workflows, and ATT&CK-mapped detection documentation.
+Future improvements may include additional endpoint detections, expanded ECS normalization for firewall/DNS/DHCP data, Logstash-to-Elasticsearch certificate-verification hardening, automated certificate renewal, expanded vulnerability-management workflows, and ATT&CK-mapped detection documentation.
 
 ---
 
