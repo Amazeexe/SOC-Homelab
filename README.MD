@@ -144,11 +144,15 @@ The security segment contains ELK, OpenVAS, and Vault. OpenVAS receives explicit
 
 ![VLAN 40 firewall rules](docs/images/opnsense/vlan40-firewall-rules.webp)
 
+**Rule rationale:** Security tooling is not treated as implicitly trusted just because it resides in the security VLAN. OpenVAS receives narrowly scoped access to authorized scan targets, while ELK, Vault, and other services rely on service-specific flows rather than unrestricted east-west access. Broader traffic to `Protected_Networks` is denied, limiting the ability of a compromised security appliance to become a pivot into the rest of the lab.
+
 ### VLAN 50 — Windows Workstation
 
 The Windows workstation segment is restricted to the services needed for Active Directory and Elastic Agent communication. AD-specific traffic is directed to DC01, while direct cross-VLAN access is denied unless explicitly allowed.
 
 ![VLAN 50 firewall rules](docs/images/opnsense/vlan50-firewall-rules.webp)
+
+**Rule rationale:** ZMH-WS1 needs domain services and telemetry connectivity without being given broad access to other internal networks. Required AD/DNS communication to DC01 and Elastic Agent traffic are allowed explicitly above the broader deny rules. Other routed internal access falls through to the `Protected_Networks` block, reducing unnecessary east-west reachability from a user workstation.
 
 ### VLAN 60 — Domain Controller
 
@@ -156,17 +160,23 @@ DC01 is permitted to reach required Elastic services and the OPNsense DNS/DHCP p
 
 ![VLAN 60 firewall rules](docs/images/opnsense/vlan60-firewall-rules.webp)
 
+**Rule rationale:** DC01 is treated as a high-value server segment rather than as a generally trusted source. Only the infrastructure and telemetry paths required for normal operation are permitted, including the OPNsense DNS/DHCP path and Elastic services. Unnecessary access to other protected networks remains denied, reducing the lateral-movement options available if the domain-controller segment were ever compromised.
+
 ### VLAN 70 — Red Team
 
 Kali is intentionally isolated. The segment can reach explicitly approved lab targets for testing, but broad access to protected networks is denied and logged.
 
 ![VLAN 70 firewall rules](docs/images/opnsense/vlan70-firewall-rules.webp)
 
+**Rule rationale:** Kali is deliberately treated as untrusted. Test-specific exceptions are placed above the broad internal deny so approved workflows—such as scoped RDP validation against ZMH-WS1 and controlled detection tests—can occur without granting VLAN 70 general access to internal systems. Traffic outside those exceptions is denied and logged, making the firewall both a preventive control and a source of validation telemetry in Elastic.
+
 ### VLAN 99 — Management
 
 Management traffic is kept separate from normal user workloads. The VLAN is used for Proxmox, switch, and firewall administration and follows the same explicit-service/default-deny model.
 
 ![VLAN 99 firewall rules](docs/images/opnsense/vlan99-firewall-rules.webp)
+
+**Rule rationale:** VLAN 99 is the infrastructure management plane, so access is separated from normal workstation and service traffic. Required administration and infrastructure flows are permitted explicitly before the broader protected-network and default-deny rules. Unexpected management-plane egress is logged; this policy previously exposed direct SMTP attempts from a Proxmox host, demonstrating how restrictive management rules can also reveal unintended application behavior.
 
 ### Suricata IDS
 
