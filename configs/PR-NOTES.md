@@ -1,1 +1,0 @@
-Temporary branch notes: final Logstash-to-Elasticsearch certificate verification hardening will be applied before merge.
