@@ -1,0 +1,37 @@
+# Sanitized Kibana configuration for the SOC homelab.
+# Secrets and environment-specific trust fingerprints are intentionally redacted.
+
+server.host: "0.0.0.0"
+
+server.ssl.enabled: true
+server.ssl.certificate: /etc/kibana/kibana-cert.pem
+server.ssl.key: /etc/kibana/kibana-key.pem
+
+logging:
+  appenders:
+    file:
+      type: file
+      fileName: /var/log/kibana/kibana.log
+      layout:
+        type: json
+  root:
+    appenders:
+      - default
+      - file
+
+pid.file: /run/kibana/kibana.pid
+
+elasticsearch.hosts: [https://192.168.40.10:9200]
+elasticsearch.serviceAccountToken: "<REDACTED>"
+elasticsearch.ssl.certificateAuthorities: [/etc/kibana/homelab-root-ca.pem]
+
+xpack.fleet.outputs:
+  - id: fleet-default-output
+    name: default
+    is_default: true
+    is_default_monitoring: true
+    type: elasticsearch
+    hosts: [https://192.168.40.10:9200]
+    ca_trusted_fingerprint: "<CA_FINGERPRINT>"
+
+xpack.encryptedSavedObjects.encryptionKey: "<REDACTED>"
