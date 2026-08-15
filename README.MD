@@ -230,7 +230,7 @@ Fleet centrally manages the Elastic Agents used by the lab systems.
 
 Separate Kibana data views make firewall, Suricata, and endpoint telemetry easier to query without losing the underlying index separation. A dedicated Suricata ECS data view targets `suricata-alerts-ecs-*` so detection rules do not mix the current ECS mappings with legacy Suricata alert indices.
 
-![Kibana data views](docs/images/kibana/data-views.webp)
+![Kibana data views](docs/images/kibana/Kibana_Data_Views.png)
 
 *Current Kibana data views, including the dedicated Suricata ECS view used by Elastic Security detections.*
 
@@ -344,7 +344,7 @@ The detection is mapped to **MITRE ATT&CK T1110.001 — Password Guessing**, whi
 
 The Security alert queue shows both validated detections operating together: the internal Nmap ACK-scan rule and the Linux SSH password-guessing correlation rule.
 
-![Elastic Security alerts](docs/images/kibana/elastic-security-alerts.webp)
+![Elastic Security alerts](docs/images/kibana/Sec_Alerts.png)
 
 *Elastic Security alert summary showing validated network and authentication detections.*
 
@@ -396,9 +396,21 @@ The Windows environment uses the `zmh.homelab` domain with Windows Server 2025 a
 
 ![Active Directory computer OU](docs/images/windows/aduc-computer-ou.webp)
 
-### Domain Discovery from ZMH-WS1
+### Kali-to-Workstation Validation and Domain Discovery
 
-The workstation was used to validate AD service discovery with `nltest` and DNS SRV lookups. The results confirmed:
+The Kali red-team host was used to validate the explicitly permitted path to ZMH-WS1 before beginning domain discovery. An Nmap check confirmed that RDP/TCP 3389 was reachable on the workstation, after which a FreeRDP session was initiated from the isolated red-team VLAN.
+
+![Kali Nmap and FreeRDP command](docs/images/kali/Kali-To-Win11-Nmap-andFreeRDP-Command.png)
+
+*Connectivity validation to ZMH-WS1 followed by the FreeRDP command used to initiate the authorized workstation session.*
+
+The completed FreeRDP connection verified that the scoped firewall exception allowed access to the intended workstation without granting broad access from the red-team segment.
+
+![Successful FreeRDP connection](docs/images/kali/End_of_FreeRDP_Successful_Connection.png)
+
+*Successful end state of the Kali-to-ZMH-WS1 RDP session.*
+
+From the workstation session, `nltest` and DNS SRV lookups were then used to validate Active Directory service discovery. The results confirmed:
 
 - workstation domain identity,
 - discovery of `DC01.zmh.homelab`,
@@ -406,11 +418,11 @@ The workstation was used to validate AD service discovery with `nltest` and DNS 
 - LDAP/Kerberos/GC/DNS roles,
 - `_ldap._tcp.dc._msdcs.zmh.homelab` service discovery.
 
-The session was initiated from Kali through RDP after validating that TCP/3389 was reachable on the explicitly permitted workstation target.
-
 ![RDP workstation domain enumeration](docs/images/kali/rdp-ws1-domain-enumeration.webp)
 
-This gives the lab both **administrative validation** and **purple-team telemetry generation** from the same workflow.
+*Domain discovery performed from ZMH-WS1 after the Kali-originated RDP session was established.*
+
+Together, these screenshots show the complete validation path: **network reachability → scoped remote access → successful session → domain discovery**. This provides both administrative validation and purple-team telemetry generation from the same controlled workflow.
 
 ---
 
