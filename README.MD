@@ -70,8 +70,8 @@ Cisco 3560CX
       +--> VLAN 70  Red Team
       +--> VLAN 99  Management
 
-OPNsense Filebeat --TLS/5044--> Logstash --> Elasticsearch --> Kibana
-Windows Elastic Agent --------> Fleet Server -------------> Elasticsearch
+OPNsense Filebeat --TLS/5044--> Logstash --verified TLS--> Elasticsearch --> Kibana
+Windows Elastic Agent -------------------------------> Fleet / Elasticsearch
 Suricata ---------------------> custom alert/log indices --> Elastic Security
 ```
 
@@ -204,6 +204,8 @@ Logstash
     |-- DNS logs         --> dns-logs-*
     |-- DHCP logs        --> dhcp-logs-*
     |-- OPNsense auth    --> opnsense-auth-*
+    |
+    | verified TLS / internal CA
     v
 Elasticsearch
     |
@@ -229,6 +231,8 @@ Fleet centrally manages the Elastic Agents used by the lab systems.
 Separate Kibana data views make firewall, Suricata, and endpoint telemetry easier to query without losing the underlying index separation. A dedicated Suricata ECS data view targets `suricata-alerts-ecs-*` so detection rules do not mix the current ECS mappings with legacy Suricata alert indices.
 
 ![Kibana data views](docs/images/kibana/data-views.webp)
+
+*Current Kibana data views, including the dedicated Suricata ECS view used by Elastic Security detections.*
 
 ### Suricata ECS Normalization
 
@@ -338,6 +342,14 @@ system.auth.ssh.event   = Failed
 
 The detection is mapped to **MITRE ATT&CK T1110.001 — Password Guessing**, while the Nmap detection maps to **T1046 — Network Service Scanning**.
 
+### Elastic Security Alerts
+
+The Security alert queue shows both validated detections operating together: the internal Nmap ACK-scan rule and the Linux SSH password-guessing correlation rule.
+
+![Elastic Security alerts](docs/images/kibana/elastic-security-alerts.webp)
+
+*Elastic Security alert summary showing validated network and authentication detections.*
+
 ### Detection Tuning Example
 
 During dashboard review, the signature `ET SCAN NMAP -sA (1)` was disproportionately noisy. Investigation showed many events with public HTTPS servers as the source, source port `443`, internal WiFi clients as destinations, and high ephemeral destination ports.
@@ -364,13 +376,13 @@ Sanitized reference copies of the active security configuration are published un
 | Artifact | Demonstrates |
 |---|---|
 | [`filebeat-opnsense.yml`](configs/sanitized/filebeat-opnsense.yml) | OPNsense log collection and TLS forwarding to Logstash |
-| [`logstash-opnsense.conf`](configs/sanitized/logstash-opnsense.conf) | Log routing, Suricata ECS normalization, GeoIP enrichment, and custom indices |
+| [`logstash-opnsense.conf`](configs/sanitized/logstash-opnsense.conf) | Log routing, Suricata ECS normalization, GeoIP enrichment, verified Elasticsearch TLS, and custom indices |
 | [`elasticsearch.yml`](configs/sanitized/elasticsearch.yml) | Elasticsearch TLS/security configuration and HTTP certificate-chain deployment |
 | [`kibana.yml`](configs/sanitized/kibana.yml) | Kibana HTTPS, Elasticsearch trust, and Fleet output configuration |
 | [`suricata-local.rules`](configs/sanitized/suricata-local.rules) | Custom internal scan detection rule |
 | [`suricata-alerts-ecs-template.json`](configs/sanitized/suricata-alerts-ecs-template.json) | Native ECS field mappings for Suricata Security alerts |
 
-The current Logstash artifact intentionally reflects the running state before final Logstash-to-Elasticsearch certificate-verification hardening; that is the next TLS improvement planned for the pipeline.
+Logstash validates the Elasticsearch certificate chain and server identity against the internal root CA using full TLS verification.
 
 ---
 
@@ -498,9 +510,9 @@ Administrative RDP/SSH sessions originate from VLAN 10. Because OPNsense rules a
 
 Kali is not placed on a trusted network. Testing exceptions are scoped to intended targets so offensive validation does not weaken the architecture being tested.
 
-### 4. Security Telemetry Is Encrypted in Transit
+### 4. Security Telemetry Uses Verified TLS
 
-OPNsense-to-Logstash ingestion uses TLS, while the internal PKI provides trusted certificates for management and Elastic services.
+OPNsense-to-Logstash ingestion uses TLS, and Logstash-to-Elasticsearch connections validate the internal PKI chain and server identity with full certificate verification.
 
 ### 5. Alert Volume Is Treated as an Investigation Problem
 
@@ -562,7 +574,7 @@ A failed pve2 NVMe drive required a Proxmox reinstall and VM rebuild. Rebuilding
 
 The lab is operational and continues to evolve. Current work emphasizes **detection quality, telemetry enrichment, segmentation validation, and purple-team exercises** rather than adding services for their own sake.
 
-Future improvements may include additional endpoint detections, expanded ECS normalization for firewall/DNS/DHCP data, Logstash-to-Elasticsearch certificate-verification hardening, automated certificate renewal, expanded vulnerability-management workflows, and ATT&CK-mapped detection documentation.
+Future improvements may include additional endpoint detections, expanded ECS normalization for firewall/DNS/DHCP data, automated certificate renewal, expanded vulnerability-management workflows, and additional ATT&CK-mapped detection documentation.
 
 ---
 
