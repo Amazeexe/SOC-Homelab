@@ -113,7 +113,3 @@ Sanitized reference copies of active security configuration are published in [`c
 The lab is operational and continues to evolve around **detection quality, telemetry enrichment, segmentation validation, endpoint visibility, infrastructure resilience, and purple-team exercises** rather than adding services for their own sake.
 
 Future work will continue to add validated endpoint detections, expand ECS normalization, document hardware/storage changes, improve certificate lifecycle automation, and deepen vulnerability-remediation workflows.
-
-## License
-
-This repository is released under the [MIT License](LICENSE). Sanitized configuration examples are provided for educational and portfolio purposes; secrets and authentication material are intentionally excluded.
