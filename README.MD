@@ -55,22 +55,6 @@ Sysmon + Elastic Defend -------------------------------------------> Endpoint te
 
 [Read the full architecture and trust-boundary design →](docs/architecture.md)
 
-## Detection Evidence
-
-Controlled lab activity is used to verify that security controls produce usable telemetry and alerts rather than only proving that the tools are installed.
-
-![Elastic Security rules](docs/images/kibana/Kibana_Security_Rules_Updated.png)
-
-The current validation workflow includes:
-
-| Detection | Validation | ATT&CK |
-|---|---|---|
-| Nmap ACK scan from the red-team segment | Kali traffic → Suricata → ECS-normalized index → Elastic Security alert | `T1046` Network Service Discovery |
-| Internal TCP SYN scan / possible insider reconnaissance | `HOME_NET` host → custom Suricata SID `9000001` → Elastic Security rule | `T1046` Network Service Discovery |
-| Linux SSH password guessing | Three failed password-based SSH attempts from the same source/host within 60 seconds → EQL correlation alert | `T1110.001` Password Guessing |
-
-[Read the detection engineering and tuning workflow →](docs/detection-engineering.md)
-
 ## Elastic Defend Endpoint Visibility
 
 Elastic Defend is centrally managed through Fleet and provides process, file, network, and malware-detection telemetry from the Windows domain workstation and domain controller alongside Sysmon and Windows event logs. Endpoint telemetry and Elastic Defend alerting have been validated end-to-end in Kibana and Elastic Security, while Microsoft Defender remains the primary Windows antivirus.
