@@ -66,6 +66,38 @@ Windows endpoint visibility deliberately uses **multiple telemetry sources**.
 
 Elastic Agent carries the Elastic Defend integration for endpoint-security telemetry, while Sysmon adds detailed Windows process and host events that are useful for investigation and detection engineering. Windows Security/System/Application logs provide additional authentication and operating-system context.
 
+### Elastic Defend Policy
+
+Elastic Defend is centrally applied through Fleet to the scoped Windows systems. The current policy uses Elastic for malware detection and endpoint telemetry while Microsoft Defender remains the primary Windows antivirus, providing layered visibility without replacing the native Windows prevention layer.
+
+![Elastic Defend policy - protection settings](images/kibana/DefendPolicyPrt1.png)
+
+![Elastic Defend policy - event collection settings](images/kibana/DefendPolicyPrt2.png)
+
+The policy captures the process, file, and network telemetry used for investigations and detection development. Central policy management also makes changes auditable and avoids host-by-host configuration drift.
+
+### Elastic Defend Process Telemetry
+
+Elastic Defend process events are searchable in Kibana using the dedicated Endpoint data view. A controlled test on the Windows workstation validated visibility into common administrative processes and exposed useful fields such as host, process, parent process, user, action, and command line.
+
+![Elastic Defend process telemetry](images/kibana/Elastic-Defend-Process-Detection.png)
+
+A representative query used during validation is:
+
+```kql
+event.category : "process" AND
+host.name : "zmh-ws1" AND
+process.name : ("notepad.exe" OR "whoami.exe" OR "ipconfig.exe")
+```
+
+This creates a repeatable endpoint-validation workflow before behavior is promoted into a detection rule.
+
+### Elastic Defend Alert Validation
+
+The Endpoint protection path was also validated with the standard EICAR antivirus test file in the lab. Microsoft Defender intercepted the first test before Elastic could alert, so a temporary Defender exclusion was created for a dedicated EICAR test folder. Elastic Defend then generated its first Endpoint alert, creating the `logs-endpoint.alerts-*` data stream and confirming the prebuilt **Endpoint Security (Elastic Defend)** rule could promote Endpoint detections into Elastic Security.
+
+The temporary Defender exclusion was removed immediately after validation.
+
 ### Group Policy Deployment
 
 Separate Active Directory Group Policy Objects deploy:
@@ -79,11 +111,11 @@ For the AD side of this workflow, see [Active Directory & GPO Deployment](active
 
 ## Data Views
 
-Kibana data views keep different telemetry families easy to query while preserving index separation. A dedicated Suricata ECS data view targets `suricata-alerts-ecs-*` so current detection data does not mix with historical Suricata indices that used incompatible dynamic mappings.
+Kibana data views keep different telemetry families easy to query while preserving index separation. A dedicated Suricata ECS data view targets `suricata-alerts-ecs-*` so current detection data does not mix with historical Suricata indices that used incompatible dynamic mappings. A separate **Elastic Defend** data view targets `logs-endpoint.*`, making process, file, network, and Endpoint alert telemetry easy to investigate from one Discover view.
 
-![Kibana data views](images/kibana/Kibana_Data_Views.png)
+![Updated Kibana data views](images/kibana/Kibana_Data_Views_Updated8-16.png)
 
-*Current Kibana data views, including the dedicated Suricata ECS view used by Elastic Security detections.*
+*Current Kibana data views, including the dedicated Suricata ECS and Elastic Defend views used for detection and endpoint investigation.*
 
 ## Suricata ECS Normalization
 
