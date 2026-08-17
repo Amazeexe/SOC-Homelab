@@ -10,7 +10,7 @@ These files are sanitized reference copies of the active configuration used in t
 | [`sanitized/logstash-opnsense.conf`](sanitized/logstash-opnsense.conf) | Beats ingestion, Suricata ECS enrichment, severity tagging, firewall/DNS/DHCP/auth parsing, verified TLS to Elasticsearch, and index routing. |
 | [`sanitized/elasticsearch.yml`](sanitized/elasticsearch.yml) | Elasticsearch security and TLS configuration, including the HTTP certificate chain used by Kibana, Logstash, and Elastic Agent clients. |
 | [`sanitized/kibana.yml`](sanitized/kibana.yml) | Kibana HTTPS, Elasticsearch trust, Fleet output configuration, and sanitized service-account/encryption settings. |
-| [`sanitized/suricata-local.rules`](sanitized/suricata-local.rules) | Active custom internal port-scan rule used for lab detection testing. |
+| [`sanitized/suricata-local.rules`](sanitized/suricata-local.rules) | Active custom internal reconnaissance and SSH brute-force Suricata rules used for lab detection testing. |
 | [`sanitized/suricata-alerts-ecs-template.json`](sanitized/suricata-alerts-ecs-template.json) | Elasticsearch index template that maps Suricata alert fields to ECS-compatible types, including `source.ip` and `destination.ip` as native `ip` fields. |
 
 ## Telemetry Flow
