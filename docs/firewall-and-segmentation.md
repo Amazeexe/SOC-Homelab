@@ -77,6 +77,45 @@ Suricata runs on OPNsense in **IDS mode** and forwards alert data into Elastic f
 
 The current Suricata deployment is not treated as an inline IPS. Prevention remains the responsibility of OPNsense firewall policy, while Suricata supplies additional network-level evidence and signatures.
 
+### Capture Interfaces vs. `HOME_NET`
+
+The Suricata interface list and `HOME_NET` serve different purposes:
+
+- **Capture interfaces** determine where Suricata observes packets.
+- **`HOME_NET`** classifies which addresses signatures should treat as internal.
+
+This distinction matters on a VLAN-aware firewall. The parent trunk interface already sees tagged traffic for several VLANs, so an individual VLAN does not need to be selected as a separate Suricata capture interface simply for its traffic to be visible. Validation showed VLAN 50, VLAN 60, and VLAN 70 traffic arriving through the trunk with the VLAN tag preserved.
+
+The current internal classification includes the routed production/lab networks used by VLANs 10, 20, 30, 40, 50, 60, and 99. VLAN 70 is intentionally excluded from `HOME_NET` so the Kali validation host is treated as external to the protected environment:
+
+```text
+HOME_NET     -> trusted/internal lab networks
+EXTERNAL_NET -> !$HOME_NET
+VLAN 70      -> outside HOME_NET
+```
+
+This preserves a useful attacker-versus-target model even though Kali physically resides inside the homelab.
+
+### External-to-Internal ACK Scan Detection
+
+The Emerging Threats rule `ET SCAN NMAP -sA (1)` (`SID 2000538`) is defined for traffic from `EXTERNAL_NET` to `HOME_NET`. A controlled ACK scan from Kali therefore matches when sent from VLAN 70 toward an internal target such as the ELK host on VLAN 40.
+
+The same signature does **not** represent HOME_NET-to-HOME_NET reconnaissance. A scan sourced from an internal workstation toward another internal network falls outside the signature's directionality even if the packet pattern otherwise resembles an Nmap ACK scan.
+
+That behavior led to an explicit split between red-team/external-style reconnaissance and internal reconnaissance instead of trying to make one rule represent both cases.
+
+### Internal Reconnaissance Detection
+
+A custom Suricata rule was added for concentrated TCP SYN scanning between internal hosts:
+
+```text
+alert tcp $HOME_NET any -> $HOME_NET any (msg:"HOMELAB Internal TCP SYN Scan - Possible Insider Recon"; flow:stateless; flags:S,CE; dsize:0; threshold:type both, track by_src, count 40, seconds 10; classtype:attempted-recon; sid:9000001; rev:10;)
+```
+
+The rule is designed to identify rapid SYN-based service discovery originating from a host that is already inside `HOME_NET`, which makes it useful for insider-threat and lateral-discovery validation. It is mapped in Elastic Security to **MITRE ATT&CK T1046 — Network Service Discovery**.
+
+The active sanitized rule set is published at [Suricata local rules](../configs/sanitized/suricata-local.rules), and the Elastic-side validation workflow is documented in [Detection Engineering & Validation](detection-engineering.md).
+
 ## Filebeat Export
 
 OPNsense Filebeat forwards firewall and Suricata telemetry to Logstash over TLS.
