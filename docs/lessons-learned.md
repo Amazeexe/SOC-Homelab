@@ -63,6 +63,68 @@ This provided a practical change-management pattern for the lab:
 backup -> make narrow change -> validate configuration -> restart -> verify live ingestion
 ```
 
+## Major Firewall Upgrades Should Be Treated as Change Management
+
+The OPNsense firewall was upgraded in stages rather than jumping directly from the older release to the newest available build. The path progressed from the 26.1 branch through the final 26.1 maintenance release, then to 26.7, and finally to `26.7.2_2`.
+
+Before the upgrade, the firewall configuration and security telemetry components were backed up separately. Existing ZFS boot environments were preserved so the system retained rollback options if the operating-system or package transition caused a failure.
+
+The validation plan focused on the services that would be most damaging to silently lose:
+
+```text
+OPNsense upgrade
+    -> verify firewall boots and interfaces recover
+    -> verify Filebeat configuration is unchanged
+    -> run Filebeat configuration test
+    -> verify TLS connection to Logstash
+    -> validate Suricata configuration
+    -> confirm fresh EVE events are produced
+    -> confirm Elastic ingestion continues
+```
+
+Filebeat's active configuration was hashed before and after the major upgrade and remained unchanged. `filebeat test config` and `filebeat test output` also confirmed that the Beats-to-Logstash path still used certificate verification and successfully negotiated the configured TLS connection.
+
+Suricata was separately validated with its configuration test mode before relying on live IDS telemetry again. Fresh EVE output confirmed that the network-detection side of the pipeline had recovered after the operating-system upgrade.
+
+New ZFS feature flags were deliberately **not** enabled immediately after the upgrade. Keeping the pool compatible with older boot environments was more valuable than enabling new filesystem features that were not required by the lab.
+
+The lesson was that a firewall upgrade is not complete when the dashboard shows a new version number. It is complete when routing, policy enforcement, IDS, telemetry export, certificate trust, and rollback options have all been checked.
+
+## Immutable Flags Can Break Configuration Management
+
+A later Suricata configuration change exposed an older manual hardening decision: generated IDS files had been marked with the FreeBSD system-immutable `schg` flag.
+
+When OPNsense attempted to regenerate its IDS configuration, the rule installer failed because it could not rewrite files including:
+
+```text
+/usr/local/etc/suricata/opnsense.rules/local.rules
+/usr/local/etc/suricata/installed_rules.yaml
+```
+
+The failure initially appeared during a normal GUI Apply operation. Troubleshooting the rule installer directly made the underlying filesystem error visible.
+
+A second issue was discovered at the same time: the editable source rule file and the generated OPNsense copy had drifted. The source file under:
+
+```text
+/usr/local/etc/suricata/rules/local.rules
+```
+
+still contained an older internal scan rule, while the generated copy contained the newer tuned rules.
+
+Both copies were backed up before repair. The current rule set was restored to the editable source, the inappropriate immutable flags were removed from OPNsense-managed generated files, and the IDS configuration was regenerated normally.
+
+Validation included:
+
+```text
+installRules.py -> exit 0
+suricata -T     -> exit 0
+fresh EVE data  -> confirmed
+```
+
+The final check also confirmed that no Suricata files remained protected by `schg`.
+
+The lesson is that filesystem immutability is not automatically a security improvement. Files that belong to a configuration-management or package-generation workflow must remain writable by that workflow. Protecting generated files manually can create configuration drift, break upgrades, and turn a normal policy change into an outage.
+
 ## Segmentation and Detection Reinforce Each Other
 
 The firewall does more than stop traffic. Logged denies create telemetry that can be correlated with Suricata and endpoint events.
