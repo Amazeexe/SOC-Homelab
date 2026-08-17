@@ -73,23 +73,9 @@ The current validation workflow includes:
 
 ## Elastic Defend Endpoint Visibility
 
-Elastic Defend is centrally managed through Fleet and provides endpoint-security telemetry from the Windows domain workstation and domain controller alongside Sysmon and Windows event logs. The current policy keeps Elastic Defend focused on malware detection and endpoint visibility while Microsoft Defender remains the primary Windows antivirus.
+Elastic Defend is centrally managed through Fleet and provides process, file, network, and malware-detection telemetry from the Windows domain workstation and domain controller alongside Sysmon and Windows event logs. Endpoint telemetry and Elastic Defend alerting have been validated end-to-end in Kibana and Elastic Security, while Microsoft Defender remains the primary Windows antivirus.
 
-### Elastic Defend Policy
-
-![Elastic Defend policy - protection settings](docs/images/kibana/DefendPolicyPrt1.png)
-
-![Elastic Defend policy - event collection settings](docs/images/kibana/DefendPolicyPrt2.png)
-
-The policy is centrally applied rather than configured host-by-host, making endpoint collection repeatable and easier to audit as the lab grows.
-
-### Process-Level Telemetry
-
-![Elastic Defend process telemetry](docs/images/kibana/Elastic-Defend-Process-Detection.png)
-
-Elastic Defend process events expose host, process, parent process, user, action, and command-line context in Kibana. Controlled commands on the Windows workstation are used to verify that endpoint activity is searchable and attributable before building or tuning detections around it.
-
-[Read the Elastic and endpoint telemetry implementation →](docs/elastic-and-endpoint-telemetry.md)
+[View the Elastic Defend policy, process telemetry, and endpoint validation evidence →](docs/elastic-and-endpoint-telemetry.md)
 
 ## Technical Documentation
 
