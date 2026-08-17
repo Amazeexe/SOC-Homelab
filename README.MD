@@ -11,8 +11,8 @@ The lab combines a bare-metal OPNsense firewall, Cisco switching, a two-node Pro
 - **Eight segmented VLANs** with explicit service exceptions, `Protected_Networks` controls, and default-deny behavior.
 - **End-to-end security telemetry** from OPNsense Filebeat through Logstash to Elasticsearch over verified TLS.
 - **Elastic Defend and Sysmon** deployed to scoped Windows systems through Active Directory Group Policy.
-- **Closed-loop detection validation** using controlled Kali activity and confirmation in Elastic Security.
-- **MITRE ATT&CK-mapped detections**, including Nmap service discovery and SSH password guessing.
+- **Closed-loop detection validation** using controlled Kali and internal-host activity with confirmation in Elastic Security.
+- **MITRE ATT&CK-mapped detections**, including Nmap service discovery, internal TCP SYN reconnaissance, and SSH password guessing.
 - **Internal PKI** using a Vault root/intermediate hierarchy and service certificates.
 - **Credentialed vulnerability management** with Greenbone/OpenVAS.
 - **Failure and tuning narratives** covering IDS false positives, certificate-chain failures, firewall-discovered application behavior, and a Proxmox storage rebuild.
@@ -59,16 +59,37 @@ Sysmon + Elastic Defend -------------------------------------------> Endpoint te
 
 Controlled lab activity is used to verify that security controls produce usable telemetry and alerts rather than only proving that the tools are installed.
 
-![Elastic Security alerts](docs/images/kibana/Sec_Alerts.png)
+![Elastic Security rules](docs/images/kibana/Kibana_Security_Rules_Updated.png)
 
 The current validation workflow includes:
 
 | Detection | Validation | ATT&CK |
 |---|---|---|
-| Internal Nmap ACK scan | Kali traffic → Suricata → ECS-normalized index → Elastic Security alert | `T1046` Network Service Discovery |
+| Nmap ACK scan from the red-team segment | Kali traffic → Suricata → ECS-normalized index → Elastic Security alert | `T1046` Network Service Discovery |
+| Internal TCP SYN scan / possible insider reconnaissance | `HOME_NET` host → custom Suricata SID `9000001` → Elastic Security rule | `T1046` Network Service Discovery |
 | Linux SSH password guessing | Three failed password-based SSH attempts from the same source/host within 60 seconds → EQL correlation alert | `T1110.001` Password Guessing |
 
 [Read the detection engineering and tuning workflow →](docs/detection-engineering.md)
+
+## Elastic Defend Endpoint Visibility
+
+Elastic Defend is centrally managed through Fleet and provides endpoint-security telemetry from the Windows domain workstation and domain controller alongside Sysmon and Windows event logs. The current policy keeps Elastic Defend focused on malware detection and endpoint visibility while Microsoft Defender remains the primary Windows antivirus.
+
+### Elastic Defend Policy
+
+![Elastic Defend policy - protection settings](docs/images/kibana/DefendPolicyPrt1.png)
+
+![Elastic Defend policy - event collection settings](docs/images/kibana/DefendPolicyPrt2.png)
+
+The policy is centrally applied rather than configured host-by-host, making endpoint collection repeatable and easier to audit as the lab grows.
+
+### Process-Level Telemetry
+
+![Elastic Defend process telemetry](docs/images/kibana/Elastic-Defend-Process-Detection.png)
+
+Elastic Defend process events expose host, process, parent process, user, action, and command-line context in Kibana. Controlled commands on the Windows workstation are used to verify that endpoint activity is searchable and attributable before building or tuning detections around it.
+
+[Read the Elastic and endpoint telemetry implementation →](docs/elastic-and-endpoint-telemetry.md)
 
 ## Technical Documentation
 
