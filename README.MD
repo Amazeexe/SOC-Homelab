@@ -11,6 +11,7 @@ The lab combines a bare-metal OPNsense firewall, Cisco switching, a two-node Pro
 - **Eight segmented VLANs** with explicit service exceptions, `Protected_Networks` controls, and default-deny behavior.
 - **End-to-end security telemetry** from OPNsense Filebeat through Logstash to Elasticsearch over verified TLS.
 - **Elastic Defend and Sysmon** deployed to scoped Windows systems through Active Directory Group Policy.
+- **Elastic platform operations** including a staged `8.19.11 → 8.19.20 → 9.5.1` upgrade, pre/post snapshots, shard-recovery validation, custom 30/90-day ILM retention, and safe historical cleanup.
 - **Closed-loop detection validation** using controlled Kali and internal-host activity with confirmation in Elastic Security.
 - **MITRE ATT&CK-mapped detections**, including Nmap service discovery, internal TCP SYN reconnaissance, and SSH password guessing.
 - **Internal PKI** using a Vault root/intermediate hierarchy and service certificates.
@@ -70,6 +71,7 @@ The root README is intentionally kept skimmable. Detailed implementation notes, 
 | Architecture & trust boundaries | [docs/architecture.md](docs/architecture.md) |
 | Firewall policy & segmentation | [docs/firewall-and-segmentation.md](docs/firewall-and-segmentation.md) |
 | Elastic, Fleet, Elastic Defend & Sysmon | [docs/elastic-and-endpoint-telemetry.md](docs/elastic-and-endpoint-telemetry.md) |
+| Elastic operations, upgrades & lifecycle management | [docs/elastic-operations.md](docs/elastic-operations.md) |
 | Detection engineering & validation | [docs/detection-engineering.md](docs/detection-engineering.md) |
 | Active Directory & GPO deployment | [docs/active-directory.md](docs/active-directory.md) |
 | Physical infrastructure, Proxmox & switching | [docs/infrastructure.md](docs/infrastructure.md) |
