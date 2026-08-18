@@ -7,6 +7,7 @@ This directory contains the deeper technical documentation for the SOC homelab. 
 - [Architecture & Trust Boundaries](architecture.md) — logical topology, systems, VLANs, and security objectives.
 - [Firewall Policy & Segmentation](firewall-and-segmentation.md) — OPNsense rule strategy, per-VLAN rationale, Suricata, and firewall evidence.
 - [Elastic & Endpoint Telemetry](elastic-and-endpoint-telemetry.md) — Filebeat/Logstash/Elasticsearch pipeline, verified TLS, Fleet, Elastic Defend, Sysmon, and GPO-based deployment.
+- [Elastic Operations & Lifecycle Management](elastic-operations.md) — staged Elastic upgrades, snapshots, shard-recovery validation, custom ILM retention, safe historical cleanup, and capacity management.
 - [Detection Engineering](detection-engineering.md) — Nmap, internal reconnaissance, SSH password-guessing detections, ATT&CK mapping, validation chains, and false-positive tuning.
 - [Active Directory](active-directory.md) — AD DS, workstation/domain discovery, Group Policy security deployment, and Kali-to-workstation validation.
 - [Infrastructure](infrastructure.md) — physical path, Proxmox roles, switching, management plane, backups, and storage-failure recovery.
