@@ -4,6 +4,14 @@
 
 The lab is designed around **separate trust zones, centralized Layer 3 policy enforcement, and centralized telemetry**. Services are not considered trusted simply because they are internal; each VLAN has a defined purpose and explicit communication requirements.
 
+## Network Topology
+
+![Security Homelab Network Topology](images/topology/FinalTopology.drawio.png)
+
+*The topology separates physical infrastructure, Proxmox host placement, logical VLAN membership, management interfaces, Active Directory, endpoint systems, and security-service workloads while keeping the inter-VLAN security boundary centered on OPNsense.*
+
+[Editable Draw.io source](images/topology/FinalTopology.drawio) · [SVG export](images/topology/FinalTopology.drawio.svg) · [PNG export](images/topology/FinalTopology.drawio.png)
+
 ## Core Infrastructure
 
 | System | Role | Address / Network |
@@ -21,30 +29,9 @@ The lab is designed around **separate trust zones, centralized Layer 3 policy en
 
 ## Physical and Logical Flow
 
-```text
-Internet / ONT
-      |
-      v
-  OPNsense
-      |
-      | 802.1Q trunk / routed VLAN gateways
-      v
-Cisco 3560CX
-      |
-      +--> physical access networks
-      +--> tagged Proxmox bridges
-      |
-      +--> VLAN 10  Main / Admin
-      +--> VLAN 20  WiFi
-      +--> VLAN 30  Wired Desktop
-      +--> VLAN 40  Security Services
-      +--> VLAN 50  Windows Workstation
-      +--> VLAN 60  Domain Controller
-      +--> VLAN 70  Red Team
-      +--> VLAN 99  Management
-```
+Internet connectivity terminates at the bare-metal **OPNsense firewall/router**, which remains the Layer 3 policy-enforcement point for routed VLAN traffic. The **Cisco Catalyst 3560CX** provides Layer 2 VLAN trunks and access-port assignments, while VLAN-aware Proxmox bridges place virtual machines into their intended security zones.
 
-OPNsense remains the Layer 3 policy-enforcement point for routed VLAN traffic. The Cisco switch provides Layer 2 VLAN trunks/access-port assignments, while VLAN-aware Proxmox bridges place VMs into their intended security zones.
+The topology deliberately shows the same virtual workloads from two perspectives: the **Proxmox VE Cluster** identifies hypervisor placement, while the VLAN cards identify logical network placement. Management interfaces remain on VLAN 99 even when the workloads hosted by those hypervisors reside on other VLANs.
 
 ![OPNsense VLAN definitions](images/opnsense/opnsense-vlans.webp)
 
