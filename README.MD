@@ -6,42 +6,13 @@ The lab combines a bare-metal OPNsense firewall, Cisco switching, a two-node Pro
 
 > **Portfolio focus:** defensive engineering, telemetry pipelines, firewall policy design, detection validation, alert tuning, endpoint visibility, PKI, and vulnerability management.
 
-## What This Project Demonstrates
-
-- **Eight segmented VLANs** with explicit service exceptions, `Protected_Networks` controls, and default-deny behavior.
-- **End-to-end security telemetry** from OPNsense Filebeat through Logstash to Elasticsearch over verified TLS.
-- **Elastic Defend and Sysmon** deployed to scoped Windows systems through Active Directory Group Policy.
-- **Elastic platform operations** including a staged `8.19.11 → 8.19.20 → 9.5.1` upgrade, pre/post snapshots, shard-recovery validation, custom 30/90-day ILM retention, and safe historical cleanup.
-- **Closed-loop detection validation** using controlled Kali and internal-host activity with confirmation in Elastic Security.
-- **MITRE ATT&CK-mapped detections**, including Nmap service discovery, internal TCP SYN reconnaissance, and SSH password guessing.
-- **Internal PKI** using a Vault root/intermediate hierarchy and service certificates.
-- **Credentialed vulnerability management** with Greenbone/OpenVAS.
-- **Failure and tuning narratives** covering IDS false positives, certificate-chain failures, firewall-discovered application behavior, and a Proxmox storage rebuild.
-
 ## Architecture at a Glance
 
-```text
-Internet / ONT
-      |
-      v
-  OPNsense
-      |
-      v
-Cisco 3560CX
-      |
-      +--> VLAN 10  Main / Admin
-      +--> VLAN 20  WiFi
-      +--> VLAN 30  Wired Desktop
-      +--> VLAN 40  Security Services
-      +--> VLAN 50  Windows Workstation
-      +--> VLAN 60  Domain Controller
-      +--> VLAN 70  Red Team
-      +--> VLAN 99  Management
+[![Security Homelab Network Topology](docs/images/topology/FinalTopology.drawio.png)](docs/architecture.md)
 
-OPNsense Filebeat --TLS/5044--> Logstash --verified TLS--> Elasticsearch --> Kibana / Elastic Security
-Windows Elastic Agent ---------------------------------------------> Fleet / Elasticsearch
-Sysmon + Elastic Defend -------------------------------------------> Endpoint telemetry
-```
+*Physical infrastructure, Proxmox workload placement, VLAN segmentation, management-plane separation, and major security services. Click the diagram for the full architecture and trust-boundary design.*
+
+[Full architecture documentation →](docs/architecture.md) · [Editable Draw.io source](docs/images/topology/FinalTopology.drawio) · [SVG export](docs/images/topology/FinalTopology.drawio.svg)
 
 | VLAN | Subnet | Purpose |
 |---|---|---|
@@ -54,7 +25,17 @@ Sysmon + Elastic Defend -------------------------------------------> Endpoint te
 | 70 | `192.168.70.0/24` | Kali red-team / validation host |
 | 99 | `192.168.99.0/24` | Proxmox, switch, firewall management |
 
-[Read the full architecture and trust-boundary design →](docs/architecture.md)
+## What This Project Demonstrates
+
+- **Eight segmented VLANs** with explicit service exceptions, `Protected_Networks` controls, and default-deny behavior.
+- **End-to-end security telemetry** from OPNsense Filebeat through Logstash to Elasticsearch over verified TLS.
+- **Elastic Defend and Sysmon** deployed to scoped Windows systems through Active Directory Group Policy.
+- **Elastic platform operations** including a staged `8.19.11 → 8.19.20 → 9.5.1` upgrade, pre/post snapshots, shard-recovery validation, custom 30/90-day ILM retention, and safe historical cleanup.
+- **Closed-loop detection validation** using controlled Kali and internal-host activity with confirmation in Elastic Security.
+- **MITRE ATT&CK-mapped detections**, including Nmap service discovery, internal TCP SYN reconnaissance, and SSH password guessing.
+- **Internal PKI** using a Vault root/intermediate hierarchy and service certificates.
+- **Credentialed vulnerability management** with Greenbone/OpenVAS.
+- **Failure and tuning narratives** covering IDS false positives, certificate-chain failures, firewall-discovered application behavior, and a Proxmox storage rebuild.
 
 ## Elastic Defend Endpoint Visibility
 
