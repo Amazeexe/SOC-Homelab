@@ -10,7 +10,6 @@ The lab is designed around **separate trust zones, centralized Layer 3 policy en
 
 *The topology separates physical infrastructure, Proxmox host placement, logical VLAN membership, management interfaces, Active Directory, endpoint systems, and security-service workloads while keeping the inter-VLAN security boundary centered on OPNsense.*
 
-[Editable Draw.io source](images/topology/FinalTopology.drawio) · [SVG export](images/topology/FinalTopology.drawio.svg) · [PNG export](images/topology/FinalTopology.drawio.png)
 
 ## Core Infrastructure
 
