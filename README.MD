@@ -12,6 +12,7 @@ The lab combines a bare-metal OPNsense firewall, Cisco switching, a two-node Pro
 
 *Physical infrastructure, Proxmox workload placement, VLAN segmentation, management-plane separation, and major security services. Click the diagram for the full architecture and trust-boundary design.*
 
+[Full architecture documentation →](docs/architecture.md) · [SVG export](docs/images/topology/FinalTopology.drawio.svg)
 [Full architecture documentation →]
 
 | VLAN | Subnet | Purpose |
